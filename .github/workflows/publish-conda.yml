@@ -1,8 +1,5 @@
 name: Publish to Conda
 
-
-name: Publish to Conda
-
 on:
   push:
     tags:

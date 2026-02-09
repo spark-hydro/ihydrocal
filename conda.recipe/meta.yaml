@@ -1,5 +1,5 @@
 {% set name = "ihydrocal" %}
-{% set version = "0.0.0-beta" %}
+{% set version = "0.0.0-beta.1" %}
 
 package:
   name: {{ name|lower }}
