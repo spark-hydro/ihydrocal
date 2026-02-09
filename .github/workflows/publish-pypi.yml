@@ -1,0 +1,54 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Miniconda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        auto-update-conda: true
+        python-version: '3.13'
+        channels: conda-forge,defaults
+        activate-environment: build-env
+
+    - name: Install build tools
+      shell: bash -l {0}
+      run: |
+        pip install build twine
+
+    - name: Build package
+      shell: bash -l {0}
+      run: |
+        python -m build
+
+    - name: Check distribution
+      shell: bash -l {0}
+      run: |
+        twine check dist/*
+
+    - name: Publish to Test PyPI
+      if: github.event_name == 'workflow_dispatch'
+      shell: bash -l {0}
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      run: |
+        twine upload --repository testpypi dist/*
+
+    - name: Publish to PyPI
+      if: github.event_name == 'release'
+      shell: bash -l {0}
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        twine upload dist/*

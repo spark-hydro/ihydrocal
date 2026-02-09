@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ihydrocal"
+version = "0.0.0"
+description = "Integrated Hydrological Model Calibration and Uncertainty Analysis"
+readme = "README.md"
+authors = [
+    {name = "Seonggyu Park", email = "spark.hydro.ml@gmail.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Hydrology",
+]
+keywords = ["hydrology", "calibration", "SWAT", "MODFLOW", "PEST", "uncertainty"]
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+    "matplotlib>=3.4.0",
+    "scipy>=1.7.0",
+    "pyyaml>=5.4.0",
+    "pyemu>=1.2.0",
+    "flopy>=3.3.5",
+]
+requires-python = ">=3.12"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "mypy>=0.950",
+    "sphinx>=4.5.0",
+    "sphinx-rtd-theme>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/ihydrocal"
+Documentation = "https://ihydrocal.readthedocs.io"
+Repository = "https://github.com/yourusername/ihydrocal"
+"Bug Tracker" = "https://github.com/yourusername/ihydrocal/issues"
+
+[project.scripts]
+ihydrocal = "ihydrocal.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ihydrocal*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=ihydrocal --cov-report=xml --cov-report=html --cov-report=term"
+
+[tool.black]
+line-length = 88
+target-version = ['py311','py312', 'py313']
+include = '\.pyi?$'
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false

@@ -1,0 +1,50 @@
+name: Publish to Conda
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-conda:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Miniconda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        auto-update-conda: true
+        python-version: '3.13'
+        channels: conda-forge,defaults
+        channel-priority: strict
+
+    - name: Install conda-build
+      shell: bash -l {0}
+      run: |
+        conda install -y conda-build anaconda-client
+
+    - name: Build conda package
+      shell: bash -l {0}
+      run: |
+        conda build conda.recipe --output-folder ./conda-bld
+
+    - name: Upload to Anaconda (release)
+      if: github.event_name == 'release'
+      shell: bash -l {0}
+      env:
+        ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+      run: |
+        anaconda -t $ANACONDA_API_TOKEN upload --force ./conda-bld/noarch/ihydrocal-*.tar.bz2
+
+    - name: Upload to Anaconda (test)
+      if: github.event_name == 'workflow_dispatch'
+      shell: bash -l {0}
+      env:
+        ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+      run: |
+        anaconda -t $ANACONDA_API_TOKEN upload --label test --force ./conda-bld/noarch/ihydrocal-*.tar.bz2
