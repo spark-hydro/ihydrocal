@@ -2,7 +2,7 @@
 
 **Integrated Hydrological Model Calibration and Uncertainty Analysis**
 
-[![Tests](https://github.com/yourusername/ihydrocal/workflows/Tests/badge.svg)](https://github.com/yourusername/ihydrocal/actions)
+[![Tests](https://github.com/spark-hydro/ihydrocal/workflows/Tests/badge.svg)](https://github.com/spark-hydro/ihydrocal/actions)
 [![PyPI version](https://badge.fury.io/py/ihydrocal.svg)](https://badge.fury.io/py/ihydrocal)
 [![Conda version](https://img.shields.io/conda/vn/conda-forge/ihydrocal.svg)](https://anaconda.org/conda-forge/ihydrocal)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -38,7 +38,7 @@ conda install -c conda-forge ihydrocal
 
 ### Development Installation
 ```bash
-git clone https://github.com/yourusername/ihydrocal.git
+git clone https://github.com/spark-hydro/ihydrocal.git
 cd ihydrocal
 pip install -e .[dev]
 ```
@@ -96,8 +96,8 @@ This project builds upon:
 ## Contact
 
 - **Author**: Seonggyu Park
-- **Email**: your.email@example.com
-- **GitHub**: [yourusername](https://github.com/yourusername)
+- **Email**: spark.hydro.ml@gmail.com
+- **GitHub**: [spark-hydro](https://github.com/spark-hydro)
 ```
 
 ### 2. `LICENSE` (MIT License)
