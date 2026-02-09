@@ -1,8 +1,12 @@
 name: Publish to Conda
 
+
+name: Publish to Conda
+
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'  # Triggers on tags like v0.1.0, v1.0.0, etc.
   workflow_dispatch:
 
 jobs:
@@ -33,18 +37,19 @@ jobs:
       run: |
         conda build conda.recipe --output-folder ./conda-bld
 
-    - name: Upload to Anaconda (release)
-      if: github.event_name == 'release'
+    - name: Upload to Anaconda (tag push)
+      if: startsWith(github.ref, 'refs/tags/v')
       shell: bash -l {0}
       env:
         ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
       run: |
         anaconda -t $ANACONDA_API_TOKEN upload --force ./conda-bld/noarch/ihydrocal-*.tar.bz2
 
-    - name: Upload to Anaconda (test)
+    - name: Upload to Anaconda (manual/test)
       if: github.event_name == 'workflow_dispatch'
       shell: bash -l {0}
       env:
         ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
       run: |
         anaconda -t $ANACONDA_API_TOKEN upload --label test --force ./conda-bld/noarch/ihydrocal-*.tar.bz2
+

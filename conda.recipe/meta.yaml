@@ -1,5 +1,5 @@
 {% set name = "ihydrocal" %}
-{% set version = "0.0.0" %}
+{% set version = "0.0.0-beta" %}
 
 package:
   name: {{ name|lower }}
@@ -38,7 +38,7 @@ test:
     - ihydrocal --help
 
 about:
-  home: https://github.com/yourusername/ihydrocal
+  home: https://github.com/spark-hydro/ihydrocal
   license: MIT
   license_family: MIT
   license_file: LICENSE
@@ -47,8 +47,8 @@ about:
     iHydroCal provides a unified framework for calibration and uncertainty 
     analysis of integrated hydrological models including SWAT, SWAT+, 
     SWAT-MODFLOW, and APEX-MODFLOW-RT3D systems.
-  dev_url: https://github.com/yourusername/ihydrocal
+  dev_url: https://github.com/spark-hydro/ihydrocal
 
 extra:
   recipe-maintainers:
-    - yourusername
+    - spark-hydro
