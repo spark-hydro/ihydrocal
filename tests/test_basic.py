@@ -6,7 +6,7 @@ import ihydrocal
 def test_version():
     """Test that version is defined."""
     assert hasattr(ihydrocal, "__version__")
-    assert ihydrocal.__version__ == "0.0.0-beta.1"
+    assert ihydrocal.__version__ == "0.0.0b1"
 
 
 def test_import():
