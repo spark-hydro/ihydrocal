@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ihydrocal"
-version = "0.0.0b2"
+version = "0.0.0b3"
 description = "Integrated Hydrological Model Calibration and Uncertainty Analysis"
 readme = "README.md"
 authors = [
@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Hydrology",
 ]
-keywords = ["hydrology", "calibration", "SWAT", "MODFLOW", "PEST", "uncertainty"]
+keywords = ["hydrology", "calibration", "SWAT", "APEX", "MODFLOW", "PEST", "uncertainty"]
 dependencies = [
     "numpy>=1.20.0",
     "pandas>=1.3.0",
@@ -54,7 +54,7 @@ Repository = "https://github.com/yourusername/ihydrocal"
 ihydrocal = "ihydrocal.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["ihydrocal*"]
 
 [tool.pytest.ini_options]

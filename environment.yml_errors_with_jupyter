@@ -22,8 +22,4 @@ dependencies:
       - pyemu
       - tqdm
       - termcolor
-      - ipykernel
-      - jupyterlab
-      - nbconvert
-      - debugpy
       - -e .

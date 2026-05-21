@@ -1,6 +1,6 @@
 """Basic tests for iHydroCal."""
 
-import ihydrocal
+import src.ihydrocal as ihydrocal
 
 
 def test_version():
