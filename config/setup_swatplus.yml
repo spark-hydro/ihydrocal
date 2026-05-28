@@ -1,0 +1,104 @@
+# =============================================================================
+# iHydroCal setup configuration
+# =============================================================================
+# Notes for editing this file:
+#   - Use forward slashes (/) for paths, even on Windows.
+#     Example: C:/Users/username/project/TxtInOut
+#   - Keep dates in quotation marks.
+#     Example: "2000-01-01"
+#   - If workspace_dir is null, iHydroCal will create:
+#     project_dir/ihydrocal_workspace
+#   - The workspace is used as a copy/working folder so the original model
+#     files are not modified directly.
+# =============================================================================
+
+project:
+  name: pecos
+  model_type: swatplus   # options: swatplus, swatplus_gwflow
+  description: pecos calibration setup
+
+paths:
+  project_dir: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/calibration
+  txtinout_dir: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/america-pecos/Scenarios/Default/TxtInOut_v02
+  workspace_dir: null           # if null, use project_dir/ihydrocal_workspace
+  swat_exe: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/america-pecos/Scenarios/Default/TxtInOut_v02/rev6102.exe
+
+simulation:
+  start_date: "2000-01-01"
+  end_date: "2009-12-31"
+  warmup_years: 2               # first N years excluded from calibration/evaluation
+
+spatial_scope:
+  # Empty lists mean use all available units.
+  swatplus:
+    sub_ids: []
+    hru_ids: []
+    cha_ids: []
+    aqu_ids: []
+  gwflow:
+    grid_ids: []                # used only for model_type: swatplus_gwflow
+
+input_files:
+  # Parameter files used to create PEST template files.
+  swatplus:
+    parameter_databases: 
+      - swatp_pars.db.csv
+    parameter_files:
+      - calibration.cal
+
+  gwflow:
+    parameter_files:
+      - gwflow.input            # used only for model_type: swatplus_gwflow
+
+calibration:
+  # Each observation can have its own calibration period.
+  observations:
+    streamflow:
+      component: swatplus
+      variable: streamflow
+      time_step: day
+      start_date: "2003-01-01"
+      end_date: "2005-12-31"
+      files:
+        - stf_day.obd.csv
+      group: streamflow
+      weight: 1.0
+
+    groundwater:
+      component: gwflow
+      variable: depth_to_water
+      time_step: day
+      start_date: "2004-01-01"
+      end_date: "2007-12-31"
+      files:
+        - dtw_day.obd.csv
+      group: groundwater
+      weight: 1.0
+
+pest:
+  control_file: pest_control.pst
+  model_command: python forward_run.py
+  noptmax: 0                    # 0 = test run; >0 = optimization iterations
+
+  template_files:
+    auto_create: true           # created from input_files.parameter_files
+
+  instruction_files:
+    auto_create: true           # created from calibration observations
+
+run_options:
+  overwrite_workspace: true
+  copy_model_files: true
+  keep_original_model_safe: true
+  verbose: true
+
+binaries:
+  bin_dir: bin                  # relative to project root
+  copy_to_model: true
+  files:
+    - swatplus
+    - pestpp-glm
+    - pestpp-ies
+    - pestpp-opt
+    - pestpp-sen
+

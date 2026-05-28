@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-# from hydroeval import evaluator, nse, rmse, pbias
+
 import numpy as np
 import math
 import matplotlib.dates as mdates
@@ -10,10 +10,7 @@ import matplotlib.dates as mdates
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Rectangle
 import matplotlib.gridspec as gridspec
-
 import pyemu
-
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates

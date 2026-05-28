@@ -13,6 +13,7 @@ from .diagnostics import (
     plot_one_to_one,
     plot_flow_duration_curve,
     plot_discharge_diagnostics,
+    plot_normalized_response
 )
 
 
@@ -31,4 +32,5 @@ __all__ = [
     "plot_one_to_one",
     "plot_flow_duration_curve",
     "plot_discharge_diagnostics",
+    "plot_normalized_response"
 ]

@@ -194,18 +194,13 @@ def main_diagnostics():
         on="date",
         how="left",
     )
-
-
-
     results = plot_discharge_diagnostics(
         matched_with_pcp,
-        obs_col="08447300_obs",
-        sim_col="ch447_sim",
-        pcp_col="ch447_pcp_mm",
-        site_name="USGS08447300_ch447",
+        site_channel_map=site_channel_map,
         save_dir="outputs/diagnostics",
+        log_fdc=True,
     )
-    
+        
 
 
 if __name__ == "__main__":
