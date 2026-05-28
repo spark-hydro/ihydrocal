@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
-
+import shutil
+import re
 import yaml
 
 
@@ -130,3 +131,99 @@ def print_config_summary(config: dict[str, Any]) -> None:
     print(f"Workspace dir: {paths['workspace_dir']}")
     print(f"Simulation   : {simulation['start_date']} to {simulation['end_date']}")
     print(f"Warm-up years: {simulation['warmup_years']}")
+
+
+def init_project_config(
+    txtinout_dir: str | Path,
+    project_dir: str | Path | None = None,
+    template_config: str | Path | None = None,
+    output_config: str | Path | None = None,
+    parameter_databases: list[str | Path] | None = None,
+    overwrite: bool = False,
+) -> Path:
+    """
+    Copy the default YAML config template and update project paths.
+
+    This preserves comments because it edits the file as text instead of
+    loading/dumping YAML.
+    """
+    txtinout_dir = Path(txtinout_dir).expanduser().resolve()
+
+    if not txtinout_dir.exists():
+        raise FileNotFoundError(f"TxtInOut directory not found: {txtinout_dir}")
+
+    if project_dir is None:
+        project_dir = txtinout_dir.parent
+    else:
+        project_dir = Path(project_dir).expanduser().resolve()
+
+    if template_config is None:
+        repo_dir = Path(__file__).resolve().parents[3]
+        template_config = repo_dir / "config" / "setup_swatplus.yml"
+    else:
+        template_config = Path(template_config).expanduser().resolve()
+
+    if not template_config.exists():
+        raise FileNotFoundError(f"Template config not found: {template_config}")
+
+    if output_config is None:
+        output_config = project_dir / "config" / "setup_swatplus.yml"
+    else:
+        output_config = Path(output_config).expanduser().resolve()
+
+    if output_config.exists() and not overwrite:
+        raise FileExistsError(
+            f"Config file already exists: {output_config}\n"
+            "Use overwrite=True to replace it."
+        )
+
+    output_config.parent.mkdir(parents=True, exist_ok=True)
+
+    text = template_config.read_text(encoding="utf-8")
+
+    # Use forward slashes for YAML portability
+    project_dir_str = project_dir.as_posix()
+    txtinout_dir_str = txtinout_dir.as_posix()
+
+    text = re.sub(
+        r"^\s*project_dir\s*:.*$",
+        f"  project_dir: {project_dir_str}",
+        text,
+        flags=re.MULTILINE,
+    )
+
+    text = re.sub(
+        r"^\s*txtinout_dir\s*:.*$",
+        f"  txtinout_dir: {txtinout_dir_str}",
+        text,
+        flags=re.MULTILINE,
+    )
+
+    text = re.sub(
+        r"^\s*workspace_dir\s*:.*$",
+        "  workspace_dir: null",
+        text,
+        flags=re.MULTILINE,
+    )
+
+    output_config.write_text(text, encoding="utf-8")
+
+    if parameter_databases is not None:
+        for parameter_db in parameter_databases:
+            parameter_db = Path(parameter_db).expanduser().resolve()
+
+            if not parameter_db.exists():
+                raise FileNotFoundError(
+                    f"Parameter database not found: {parameter_db}"
+                )
+
+            dst_file = output_config.parent / parameter_db.name
+            shutil.copy2(parameter_db, dst_file)
+
+            print(f"Parameter database copied to: {dst_file}")
+
+
+    print(f"Config template created: {output_config}")
+    print("project_dir and txtinout_dir were updated automatically.")
+
+    return output_config

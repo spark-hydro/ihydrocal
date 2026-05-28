@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ihydrocal.swatplus.parameters import read_parameter_database
+from ihydrocal.models.swatplus_gwflow import read_parameter_database
 
 def main():
     script_dir = Path(__file__).resolve().parent

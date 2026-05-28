@@ -16,14 +16,14 @@ dependencies:
   - git
   - pip
   - pip:
-      - build
-      - twine
-      - flopy
-      - pyemu
-      - tqdm
-      - termcolor
-      - ipykernel
-      - jupyterlab
-      - nbconvert
-      - debugpy
-      - -e .
+    - build
+    - twine
+    - flopy
+    - pyemu
+    - tqdm
+    - termcolor
+    - ipykernel
+    - jupyterlab
+    - nbconvert
+    - debugpy
+    - -e .
