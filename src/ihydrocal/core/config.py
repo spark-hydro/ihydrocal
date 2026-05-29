@@ -208,22 +208,19 @@ def init_project_config(
 
     output_config.write_text(text, encoding="utf-8")
 
-    if parameter_databases is not None:
-        for parameter_db in parameter_databases:
-            parameter_db = Path(parameter_db).expanduser().resolve()
+    # Copy default parameter database files from repo config folder
+    repo_config_dir = template_config.parent
 
-            if not parameter_db.exists():
-                raise FileNotFoundError(
-                    f"Parameter database not found: {parameter_db}"
-                )
+    parameter_db_files = list(repo_config_dir.glob("*.db.csv"))
 
-            dst_file = output_config.parent / parameter_db.name
-            shutil.copy2(parameter_db, dst_file)
-
-            print(f"Parameter database copied to: {dst_file}")
-
+    for parameter_db in parameter_db_files:
+        dst_file = output_config.parent / parameter_db.name
+        shutil.copy2(parameter_db, dst_file)
+        print(f"Parameter database copied to: {dst_file}")
 
     print(f"Config template created: {output_config}")
-    print("project_dir and txtinout_dir were updated automatically.")
+    print(f"project_dir updated to: {project_dir_str}")
+    print(f"txtinout_dir updated to: {txtinout_dir_str}")
+    print("workspace_dir set to: null")
 
     return output_config

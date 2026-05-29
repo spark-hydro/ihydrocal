@@ -1,6 +1,6 @@
 cal_parms.cal:,written,by,SWAT+,editor,v3.0.8,on,11/10/2025,14:48,for,SWAT+,rev.61.0.1
 223,,,,,,,,,,,
-flag,name,obj_typ,,abs_min,abs_max,units,description,,,,
+flag,name,obj_typ,chg_typ,abs_min,abs_max,units,description,,,,
 0,cn2,hru,,35,95,null,,,,,
 0,cn3_swf,hru,,0,1,null,,,,,
 0,usle_p,hru,,0,1,null,,,,,
