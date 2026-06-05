@@ -49,11 +49,11 @@ def copy_model_to_workspace(config: dict[str, Any]) -> Path:
     Copy the original model directory into the iHydroCal workspace.
 
     The copied model is stored in:
-        workspace_dir / "model"
+        workspace_dir / "main"
     """
     txtinout_dir = config["paths"]["txtinout_dir"]
     workspace_dir = config["paths"]["workspace_dir"]
-    model_dir = workspace_dir / "model"
+    model_dir = workspace_dir / "main"
 
     overwrite = config["run_options"].get("overwrite_workspace", False)
 
@@ -95,7 +95,10 @@ def copy_binaries_to_model(config: dict[str, Any], model_dir: Path) -> None:
     bin_root = Path(config["binaries"].get("bin_dir", "bin")).expanduser()
 
     if not bin_root.is_absolute():
-        bin_root = config["repo_dir"] / bin_root
+        # ihydrocal repository root:
+        # src/ihydrocal/core/workspace.py -> parents[3] = repo root
+        ihydrocal_repo_dir = Path(__file__).resolve().parents[3]
+        bin_root = ihydrocal_repo_dir / bin_root
 
     bin_dir = bin_root / os_name
 

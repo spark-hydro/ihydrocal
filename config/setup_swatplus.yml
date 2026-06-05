@@ -21,7 +21,7 @@ paths:
   project_dir: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/calibration
   txtinout_dir: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/america-pecos/Scenarios/Default/TxtInOut_v02
   workspace_dir: null           # if null, use project_dir/ihydrocal_workspace
-  swat_exe: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/america-pecos/Scenarios/Default/TxtInOut_v02/rev6102.exe
+  swat_exe: rev6102.exe
 
 simulation:
   start_date: "2000-01-01"
@@ -42,7 +42,7 @@ input_files:
   # Parameter files used to create PEST template files.
   swatplus:
     parameter_databases: 
-      - swatp_pars.db.csv
+      - swatp_pars_ihydrocal.db.csv
     parameter_files:
       - calibration.cal
 

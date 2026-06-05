@@ -6,6 +6,9 @@ dependencies:
   - python=3.13
   - numpy
   - pandas
+  - geopandas
+  - shapely
+  - rasterio
   - matplotlib-base
   - scipy
   - pyyaml

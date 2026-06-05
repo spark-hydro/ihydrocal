@@ -1,19 +1,33 @@
 from pathlib import Path
 
-from ihydrocal.models.swatplus_gwflow import read_parameter_database
+from ihydrocal.core.config import load_config
+from ihydrocal.models.swatplus_gwflow.parameters import (
+    get_active_parameters, write_calibration_cal, write_calibration_template
+)
 
 def main():
-    script_dir = Path(__file__).resolve().parent
-    config_file = script_dir / "../../config/setup_swatplus.yml"
+    config_file = Path(
+        r"C:\Users\seonggpa\Documents\projects\watersheds\Pecos\Analysis\calibration\config\setup_swatplus.yml"
+    )
 
-    script_dir = Path(__file__).resolve().parent
-    parameter_db = script_dir / "../../config/swatp_pars.db.csv"
+    cfg = load_config(config_file)
 
-    df = read_parameter_database(parameter_db)
+    parameter_db_name = cfg["input_files"]["swatplus"]["parameter_databases"][0]
+    parameter_db = cfg["config_dir"] / parameter_db_name
 
-    print(df.head())
-    print(df.columns)
-    print(df.shape)
+    active = get_active_parameters(parameter_db)
+
+    model_dir = cfg["paths"]["workspace_dir"] / "main"
+
+    cal_file = model_dir / "calibration.cal"
+    tpl_file = model_dir / "calibration.cal.tpl"
+
+    write_calibration_cal(active, cal_file)
+    write_calibration_template(active, cal_file, tpl_file)
+
+    print(f"Created calibration file: {cal_file}")
+    print(f"Created template file: {tpl_file}")
+
 
 if __name__ == "__main__":
     main()
