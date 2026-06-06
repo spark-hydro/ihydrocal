@@ -18,1088 +18,478 @@ from pathlib import Path
 from typing import Optional, Union
 
 
-def plot_tseries_ensemble(
-    pst,
-    obgnam,
-    *,
-    pr_oe=None,
-    pt_oe=None,
-    width=10,
-    height=3,
-    dot=False,
-    bstcd=None,
-    pt_fill=None,
-    ymin=None,
-    ymax=None,
-    auto_ylim_from_pt_fill=False,
-    ylim_pad_fraction=0.10,
-    include_obs_in_ylim=True,
-    savefig=False,
-    filename=None,
-    dpi=300,
-    show=False,
-    pst_file=None,
-    model_dir=None,
-    case=None,
-    last_iter=None,
-    auto_load_ies=False,
-    auto_build_pt_fill=True,
+# Loading helpers
+def load_ies_observation_ensembles(
+    pst=None,
+    pst_file: Optional[Union[str, Path]] = None,
+    model_dir: Optional[Union[str, Path]] = None,
+    case: Optional[str] = None,
+    last_iter: Optional[int] = None,
+    build_pt_fill: bool = True,
 ):
     """
-    Plot observed time-series data with optional prior and posterior output ensembles.
+    Load PESTPP-IES prior and posterior observation ensembles.
 
-    This function is designed for PESTPP-IES output ensembles.
+    This helper is designed to reduce repeated IPython code.
 
-    It supports four main cases:
+    Example
+    -------
+    If:
 
-        1. Observed data only
-        2. Observed data + prior ensemble
-        3. Observed data + posterior ensemble
-        4. Observed data + prior and posterior ensembles
+        pst_file = model_dir / "pecos_rw_ies.pst"
 
-    Recommended visual order
-    ------------------------
-    The plotting order is intentionally controlled as:
+    then this function assumes:
 
-        1. Prior ensemble
-        2. Posterior ensemble or posterior uncertainty band
-        3. Best-estimate posterior realization, if requested
-        4. Observed values
+        prior observation ensemble:
+            pecos_rw_ies.0.obs.csv
 
-    This order keeps the observed data visible on top of the uncertainty
-    information.
+        posterior observation ensemble:
+            pecos_rw_ies.<last_iter>.obs.csv
+
+    If last_iter is None, the function automatically finds the largest
+    available iteration number from files matching:
+
+        case.*.obs.csv
 
     Parameters
     ----------
-    pst : pyemu.Pst
-        PEST control file object.
+    pst : pyemu.Pst, optional
+        Existing PEST control file object.
 
-        The function uses:
-            - pst.observation_data
-            - pst.nnz_obs_groups
+    pst_file : str or pathlib.Path, optional
+        Path to the PEST control file.
 
-    obgnam : str
-        Observation group name to plot.
+        Required if pst is not provided.
 
-    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
-        Prior output ensemble.
+    model_dir : str or pathlib.Path, optional
+        Folder containing PESTPP-IES output files.
 
-        Rows should be realization names and columns should be observation names.
+        If None and pst_file is provided, model_dir is inferred from
+        pst_file.parent.
 
-    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
-        Posterior output ensemble.
+    case : str, optional
+        Case name used as the prefix for IES output files.
 
-        Rows should be realization names and columns should be observation names.
-
-    width, height : float, optional
-        Figure size in inches.
-
-    dot : bool, default False
-        If True, plot ensemble realizations as scatter points.
-
-        If False, plot ensemble realizations as lines or posterior band.
-
-    bstcd : str, optional
-        Best-estimate realization name to plot from posterior ensemble.
-
-        This requires pt_oe.
-
-    pt_fill : pandas.DataFrame, optional
-        Posterior uncertainty range.
-
-        Expected columns:
-            - obgnme
-            - pt_min
-            - pt_max
-
-        Expected index:
-            datetime-like values compatible with the x-axis.
-
-        If provided, the function plots a posterior uncertainty band instead
-        of plotting every posterior realization as blue lines.
-
-    ymin, ymax : float, optional
-        Optional manual y-axis limits.
-
-        If provided, these override auto y-axis behavior.
-
-    auto_ylim_from_pt_fill : bool, default False
-        If True, automatically set y-axis limits from the posterior
-        uncertainty band.
-
-        This is very useful when looping over many observation groups because
-        prior ensemble outliers can otherwise make the posterior band hard to see.
-
-    ylim_pad_fraction : float, default 0.10
-        Fractional padding added to automatically calculated y-axis limits.
+        If None and pst_file is provided, case is inferred from pst_file.stem.
 
         Example:
-            ylim_pad_fraction = 0.10
+            pecos_rw_ies.pst -> case = "pecos_rw_ies"
 
-        adds 10% padding above and below the plotted range.
+    last_iter : int, optional
+        Posterior iteration number.
 
-    include_obs_in_ylim : bool, default True
-        If True and auto_ylim_from_pt_fill=True, observed values are also
-        included when calculating automatic y-axis limits.
+        If None, the function automatically finds the largest available
+        iteration from observation ensemble files.
 
-        This prevents observations from being clipped.
-
-    savefig : bool, default False
-        If True, save the figure as a PNG file.
-
-    filename : str or pathlib.Path, optional
-        Output filename.
-
-        If None and savefig=True, a default filename is generated.
-
-    dpi : int, default 300
-        Resolution for saved figure.
-
-    show : bool, default False
-        If True, call plt.show().
-
-        In IPython/Jupyter, you may prefer:
-
-            display(fig)
-            plt.close(fig)
+    build_pt_fill : bool, default True
+        If True, create a posterior min/max dataframe for uncertainty-band
+        plotting in plot_tseries_ensemble().
 
     Returns
     -------
-    fig, ax
-        Matplotlib figure and axis objects.
+    dict
+        Dictionary containing:
+            - pst
+            - model_dir
+            - case
+            - last_iter
+            - pr_oe
+            - pt_oe
+            - pt_fill
+            - prior_obs_file
+            - posterior_obs_file
     """
-    # ------------------------------------------------------------------
-    # Optional automatic loading for PESTPP-IES outputs.
-    #
-    # This allows simple calls such as:
-    #
-    #     plot_tseries_ensemble(
-    #         pst_file=model_dir / "pecos_rw_ies.pst",
-    #         obgnam="stf_08447300",
-    #         auto_load_ies=True,
-    #     )
-    #
-    # The function will load:
-    #     case.0.obs.csv
-    #     case.<last_iter>.obs.csv
-    #     pt_fill
-    # ------------------------------------------------------------------
-    if auto_load_ies:
-        ies = load_ies_observation_ensembles(
-            pst=pst,
-            pst_file=pst_file,
-            model_dir=model_dir,
-            case=case,
-            last_iter=last_iter,
-            build_pt_fill=auto_build_pt_fill,
-        )
-
-        pst = ies["pst"]
-
-        if pr_oe is None:
-            pr_oe = ies["pr_oe"]
-
-        if pt_oe is None:
-            pt_oe = ies["pt_oe"]
-
-        if pt_fill is None and auto_build_pt_fill:
-            pt_fill = ies["pt_fill"]
 
     # ------------------------------------------------------------------
-    # Convert pyEMU ensemble-like objects to pandas DataFrames.
-    #
-    # This allows direct use of:
-    #
-    #     pyemu.ObservationEnsemble.from_csv(...)
-    #
-    # or plain pandas DataFrames loaded using:
-    #
-    #     pd.read_csv(..., index_col=0)
-    #
-    # If either ensemble is None, it remains None.
+    # Load pst if only pst_file is provided.
+    # pyEMU often needs str(path), not Path object.
     # ------------------------------------------------------------------
-    pr_oe = _ensemble_to_dataframe(pr_oe, name="pr_oe")
-    pt_oe = _ensemble_to_dataframe(pt_oe, name="pt_oe")
+    if pst is None:
+        if pst_file is None:
+            raise ValueError("Either pst or pst_file must be provided.")
 
-    has_prior = pr_oe is not None
-    has_posterior = pt_oe is not None
+        pst_file = Path(pst_file)
+        pst = pyemu.Pst(str(pst_file))
+
+    else:
+        if pst_file is not None:
+            pst_file = Path(pst_file)
 
     # ------------------------------------------------------------------
-    # Get observation data from the PEST control file.
-    #
-    # We keep only observations from non-zero-weight observation groups.
-    # These are the observations that actually contribute to the objective
-    # function.
+    # Infer model_dir.
     # ------------------------------------------------------------------
-    obs = pst.observation_data.copy()
-    obs = obs.loc[obs.obgnme.isin(pst.nnz_obs_groups)].copy()
+    if model_dir is None:
+        if pst_file is None:
+            raise ValueError(
+                "model_dir could not be inferred because pst_file was not provided."
+            )
+
+        model_dir = pst_file.parent
+
+    model_dir = Path(model_dir)
 
     # ------------------------------------------------------------------
-    # Extract time information from observation names.
-    #
-    # This assumes the last 8 characters of obsnme are dates.
-    #
+    # Infer case name.
     # Example:
-    #     stf_08447300_20010515
-    #                         ^^^^^^^^
+    #     pecos_rw_ies.pst -> pecos_rw_ies
+    # ------------------------------------------------------------------
+    if case is None:
+        if pst_file is None:
+            raise ValueError(
+                "case could not be inferred because pst_file was not provided."
+            )
+
+        case = pst_file.stem
+
+    # ------------------------------------------------------------------
+    # Automatically find the last available IES observation iteration.
     #
-    # If your observation-name date format changes later, this is the
-    # line to modify.
+    # Files should look like:
+    #     pecos_rw_ies.0.obs.csv
+    #     pecos_rw_ies.1.obs.csv
+    #     pecos_rw_ies.2.obs.csv
     # ------------------------------------------------------------------
-    obs["time"] = pd.to_datetime(obs.obsnme.str[-8:], errors="coerce")
+    if last_iter is None:
+        obs_files = sorted(model_dir.glob(f"{case}.*.obs.csv"))
+
+        iteration_numbers = []
+
+        for f in obs_files:
+            # Remove case prefix and suffix.
+            # Example:
+            #   pecos_rw_ies.4.obs.csv -> 4
+            middle = f.name.replace(f"{case}.", "").replace(".obs.csv", "")
+
+            if middle.isdigit():
+                iteration_numbers.append(int(middle))
+
+        if not iteration_numbers:
+            raise FileNotFoundError(
+                f"No IES observation ensemble files found using pattern: "
+                f"{model_dir / f'{case}.*.obs.csv'}"
+            )
+
+        last_iter = max(iteration_numbers)
 
     # ------------------------------------------------------------------
-    # Select the requested observation group.
+    # Define prior and posterior observation ensemble files.
     # ------------------------------------------------------------------
-    oobs = obs.loc[obs.obgnme == obgnam].copy()
+    prior_obs_file = model_dir / f"{case}.0.obs.csv"
+    posterior_obs_file = model_dir / f"{case}.{last_iter}.obs.csv"
 
-    if oobs.empty:
-        raise ValueError(f"No observations found for observation group: {obgnam}")
+    if not prior_obs_file.exists():
+        raise FileNotFoundError(f"Prior observation ensemble not found: {prior_obs_file}")
 
-    # ------------------------------------------------------------------
-    # Remove observations where date parsing failed.
-    # ------------------------------------------------------------------
-    oobs = oobs.dropna(subset=["time"]).copy()
-
-    if oobs.empty:
-        raise ValueError(
-            f"Observations were found for {obgnam}, but no valid dates could be parsed "
-            "from the last 8 characters of obsnme."
+    if not posterior_obs_file.exists():
+        raise FileNotFoundError(
+            f"Posterior observation ensemble not found: {posterior_obs_file}"
         )
 
     # ------------------------------------------------------------------
-    # Sort observations by time so lines follow chronological order.
-    # ------------------------------------------------------------------
-    oobs.sort_values("time", inplace=True)
-
-    tvals = oobs.time.to_numpy()
-    onames = oobs.obsnme.to_numpy()
-
-    # ------------------------------------------------------------------
-    # Prepare prior ensemble.
+    # Load ensembles as DataFrames.
     #
-    # Values <= -999 are treated as missing values. This is useful because
-    # many model workflows use values like -999 or -9999 as missing-data flags.
+    # We use DataFrames here because plot_tseries_ensemble() and
+    # plot_fdc_ensemble() only need realization rows and observation columns.
     # ------------------------------------------------------------------
-    if has_prior:
-        pr_oe = pr_oe.where(pr_oe > -999)
+    pr_oe = pd.read_csv(prior_obs_file, index_col=0)
+    pt_oe = pd.read_csv(posterior_obs_file, index_col=0)
 
-        missing_prior_cols = [name for name in onames if name not in pr_oe.columns]
+    # ------------------------------------------------------------------
+    # Build posterior uncertainty range for time-series band plotting.
+    #
+    # pt_fill structure:
+    #     index  = datetime parsed from observation names
+    #     columns = pt_min, pt_max, obgnme
+    #
+    # This can be passed directly to plot_tseries_ensemble(..., pt_fill=pt_fill)
+    # ------------------------------------------------------------------
+    pt_fill = None
 
-        if missing_prior_cols:
+    if build_pt_fill:
+        pt_fill = pd.DataFrame(
+            {
+                "pt_min": pt_oe.min(axis=0),
+                "pt_max": pt_oe.max(axis=0),
+            }
+        )
+
+        obs_data = pst.observation_data.copy()
+
+        missing_obs = [obs for obs in pt_fill.index if obs not in obs_data.index]
+
+        if missing_obs:
             raise KeyError(
-                f"{len(missing_prior_cols)} observation names are missing from pr_oe. "
-                f"Example missing name: {missing_prior_cols[0]}"
+                f"{len(missing_obs)} posterior observation names were not found "
+                f"in pst.observation_data. Example: {missing_obs[0]}"
             )
 
-    # ------------------------------------------------------------------
-    # Prepare posterior ensemble.
-    # ------------------------------------------------------------------
-    if has_posterior:
-        pt_oe = pt_oe.where(pt_oe > -999)
+        pt_fill["obgnme"] = obs_data.loc[pt_fill.index, "obgnme"]
 
-        missing_post_cols = [name for name in onames if name not in pt_oe.columns]
-
-        if missing_post_cols:
-            raise KeyError(
-                f"{len(missing_post_cols)} observation names are missing from pt_oe. "
-                f"Example missing name: {missing_post_cols[0]}"
-            )
-
-    # ------------------------------------------------------------------
-    # Prepare posterior uncertainty band if provided.
-    #
-    # pt_fill should already contain posterior min/max values by observation.
-    #
-    # Expected:
-    #     index  : datetime-like values
-    #     columns: obgnme, pt_min, pt_max
-    #
-    # The function filters pt_fill to the requested observation group.
-    # ------------------------------------------------------------------
-    if pt_fill is not None:
-        required_cols = {"obgnme", "pt_min", "pt_max"}
-        missing_cols = required_cols.difference(pt_fill.columns)
-
-        if missing_cols:
-            raise KeyError(
-                f"pt_fill is missing required columns: {sorted(missing_cols)}"
-            )
-
-        df_fill = pt_fill.loc[pt_fill["obgnme"] == obgnam].copy()
-
-        if df_fill.empty:
-            raise ValueError(f"No pt_fill records found for observation group: {obgnam}")
-
-        # Sort the fill dataframe by its datetime index to avoid strange
-        # polygons when fill_between is called.
-        df_fill = df_fill.sort_index()
-
-    else:
-        df_fill = None
-
-    # ------------------------------------------------------------------
-    # Prepare observed values with non-zero weight.
-    #
-    # These will be plotted last so they remain visible.
-    # ------------------------------------------------------------------
-    oobs_nonzero = oobs.loc[oobs.weight > 0].copy()
-
-    # ------------------------------------------------------------------
-    # Create figure.
-    # ------------------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(width, height))
-
-    # ==================================================================
-    # Case 1: scatter style
-    # ==================================================================
-    if dot:
-
-        # --------------------------------------------------------------
-        # 1. Prior ensemble first.
-        #    Gray and semi-transparent so it stays in the background.
-        # --------------------------------------------------------------
-        if has_prior:
-            for idx, realization in enumerate(pr_oe.index):
-                ax.scatter(
-                    tvals,
-                    pr_oe.loc[realization, onames].to_numpy(),
-                    color="gray",
-                    s=30,
-                    alpha=0.35,
-                    label="Prior ensemble" if idx == 0 else None,
-                    zorder=1,
-                )
-
-        # --------------------------------------------------------------
-        # 2. Posterior ensemble second.
-        # --------------------------------------------------------------
-        if has_posterior:
-            for idx, realization in enumerate(pt_oe.index):
-                ax.scatter(
-                    tvals,
-                    pt_oe.loc[realization, onames].to_numpy(),
-                    color="b",
-                    s=30,
-                    alpha=0.20,
-                    label="Posterior ensemble" if idx == 0 else None,
-                    zorder=2,
-                )
-
-        # --------------------------------------------------------------
-        # 3. Best-estimate realization, if requested.
-        #
-        # For scatter mode, we plot it as a blue line so it is easy to
-        # distinguish from the ensemble cloud.
-        # --------------------------------------------------------------
-        if bstcd is not None:
-            if not has_posterior:
-                raise ValueError("bstcd was provided, but pt_oe is None.")
-
-            if bstcd not in pt_oe.index:
-                raise KeyError(
-                    f"Best-estimate realization '{bstcd}' was not found in pt_oe.index."
-                )
-
-            ax.plot(
-                tvals,
-                pt_oe.loc[bstcd, onames].to_numpy(),
-                color="b",
-                lw=1.5,
-                zorder=4,
-                label="Best estimate",
-            )
-
-        # --------------------------------------------------------------
-        # 4. Observed values last.
-        #    Hollow red circles are easy to see on top of ensembles.
-        # --------------------------------------------------------------
-        ax.scatter(
-            oobs_nonzero.time,
-            oobs_nonzero.obsval,
-            edgecolor="red",
-            facecolor="none",
-            s=30,
-            alpha=0.8,
-            label="Observed",
-            zorder=5,
+        # Assumes date is stored in the last 8 characters of observation name.
+        pt_fill["time"] = pd.to_datetime(
+            pt_fill.index.astype(str).str[-8:],
+            errors="coerce",
         )
 
-    # ==================================================================
-    # Case 2: line/band style
-    # ==================================================================
-    else:
-
-        # --------------------------------------------------------------
-        # 1. Prior ensemble first.
-        #    This stays in the background.
-        # --------------------------------------------------------------
-        if has_prior:
-            for idx, realization in enumerate(pr_oe.index):
-                ax.plot(
-                    tvals,
-                    pr_oe.loc[realization, onames].to_numpy(),
-                    color="0.5",
-                    lw=0.5,
-                    alpha=0.45,
-                    label="Prior ensemble" if idx == 0 else None,
-                    zorder=1,
-                )
-
-        # --------------------------------------------------------------
-        # 2. Posterior ensemble second.
-        #
-        # If df_fill is provided, plot posterior uncertainty as a band.
-        # This is much cleaner than plotting all posterior lines when the
-        # ensemble is large.
-        #
-        # If df_fill is not provided, plot all posterior realizations.
-        # --------------------------------------------------------------
-        if has_posterior:
-            if df_fill is not None:
-
-                # Posterior uncertainty band.
-                # Use explicit numpy arrays to avoid dtype issues in
-                # matplotlib.fill_between.
-                ax.fill_between(
-                    df_fill.index,
-                    df_fill["pt_min"].to_numpy(dtype=float),
-                    df_fill["pt_max"].to_numpy(dtype=float),
-                    interpolate=False,
-                    color="b",
-                    alpha=0.35,
-                    label="Posterior range",
-                    zorder=3,
-                )
-
-                # Plot lower edge of posterior band.
-                # This makes the band visible even when the uncertainty
-                # range is very narrow.
-                ax.plot(
-                    df_fill.index,
-                    df_fill["pt_min"].to_numpy(dtype=float),
-                    color="b",
-                    lw=0.8,
-                    alpha=0.8,
-                    zorder=3,
-                )
-
-                # Plot upper edge of posterior band.
-                ax.plot(
-                    df_fill.index,
-                    df_fill["pt_max"].to_numpy(dtype=float),
-                    color="b",
-                    lw=0.8,
-                    alpha=0.8,
-                    zorder=3,
-                )
-
-            else:
-                for idx, realization in enumerate(pt_oe.index):
-                    ax.plot(
-                        tvals,
-                        pt_oe.loc[realization, onames].to_numpy(),
-                        color="b",
-                        lw=0.5,
-                        alpha=0.40,
-                        label="Posterior ensemble" if idx == 0 else None,
-                        zorder=2,
-                    )
-
-        # --------------------------------------------------------------
-        # 3. Best-estimate posterior realization, if requested.
-        #    This goes above prior/posterior ensemble but below observed.
-        # --------------------------------------------------------------
-        if bstcd is not None:
-            if not has_posterior:
-                raise ValueError("bstcd was provided, but pt_oe is None.")
-
-            if bstcd not in pt_oe.index:
-                raise KeyError(
-                    f"Best-estimate realization '{bstcd}' was not found in pt_oe.index."
-                )
-
-            ax.plot(
-                tvals,
-                pt_oe.loc[bstcd, onames].to_numpy(),
-                color="b",
-                lw=1.5,
-                zorder=4,
-                label="Best estimate",
-            )
-
-        # --------------------------------------------------------------
-        # 4. Observed values last.
-        #    Plotting them last keeps observations visible.
-        # --------------------------------------------------------------
-        ax.scatter(
-            oobs_nonzero.time,
-            oobs_nonzero.obsval,
-            edgecolor="red",
-            facecolor="none",
-            s=14,
-            zorder=5,
-            alpha=0.8,
-            label="Observed",
+        pt_fill = (
+            pt_fill
+            .dropna(subset=["time"])
+            .set_index("time")
+            .sort_index()
         )
 
-    # ------------------------------------------------------------------
-    # Automatically set y-axis limits from posterior uncertainty band.
-    #
-    # This is useful when plotting many observation groups in a loop.
-    # Otherwise, a very narrow posterior band can be hard to see because
-    # the y-axis may be dominated by prior ensemble outliers.
-    #
-    # If include_obs_in_ylim=True, observed values are also included in
-    # the y-axis range so observations are not clipped.
-    #
-    # Manual ymin/ymax still take priority if provided by the user.
-    # ------------------------------------------------------------------
-    if auto_ylim_from_pt_fill and df_fill is not None and ymin is None and ymax is None:
-        y_values = []
+    return {
+        "pst": pst,
+        "model_dir": model_dir,
+        "case": case,
+        "last_iter": last_iter,
+        "pr_oe": pr_oe,
+        "pt_oe": pt_oe,
+        "pt_fill": pt_fill,
+        "prior_obs_file": prior_obs_file,
+        "posterior_obs_file": posterior_obs_file,
+    }
 
-        y_values.extend(df_fill["pt_min"].dropna().to_numpy(dtype=float))
-        y_values.extend(df_fill["pt_max"].dropna().to_numpy(dtype=float))
+# Time/aggregation helpers
+def parse_observation_times(obs_names, date_format=None):
+    """
+    Parse datetime values from observation names.
 
-        if include_obs_in_ylim and not oobs_nonzero.empty:
-            y_values.extend(oobs_nonzero["obsval"].dropna().to_numpy(dtype=float))
+    By default, this assumes the last 8 characters of each observation name
+    are dates in YYYYMMDD format.
 
-        y_values = np.asarray(y_values, dtype=float)
-        y_values = y_values[np.isfinite(y_values)]
+    Examples
+    --------
+    stf_08447300_20010515 -> 2001-05-15
+    """
+    obs_names = pd.Index(obs_names).astype(str)
 
-        if y_values.size > 0:
-            y_min_auto = y_values.min()
-            y_max_auto = y_values.max()
+    if date_format is None:
+        return pd.to_datetime(obs_names.str[-8:], errors="coerce")
 
-            y_range = y_max_auto - y_min_auto
+    return pd.to_datetime(obs_names, format=date_format, errors="coerce")
 
-            if y_range == 0:
-                # Avoid identical ymin/ymax.
-                pad = abs(y_max_auto) * ylim_pad_fraction
+def aggregate_series(values, times, freq="MS", func="mean", missing_threshold=-999):
+    """
+    Aggregate a time series to monthly, annual, or other temporal frequency.
 
-                if pad == 0:
-                    pad = 1.0
-            else:
-                pad = y_range * ylim_pad_fraction
+    Common frequencies
+    ------------------
+    MS : month start
+    M  : month end
+    YS : year start
 
-            ymin = y_min_auto - pad
-            ymax = y_max_auto + pad
+    Common functions
+    ----------------
+    mean, sum, median, max, min
+    """
+    s = pd.Series(
+        pd.to_numeric(values, errors="coerce"),
+        index=pd.to_datetime(times, errors="coerce"),
+    )
 
-    # ------------------------------------------------------------------
-    # Optional y-axis limits.
-    #
-    # This supports:
-    #     ymin only
-    #     ymax only
-    #     both ymin and ymax
-    #
-    # If auto_ylim_from_pt_fill=True, ymin/ymax may have been calculated
-    # automatically above.
-    # ------------------------------------------------------------------
-    if ymin is not None or ymax is not None:
-        ax.set_ylim(ymin, ymax)
+    s = s.dropna()
+    s = s.loc[s > missing_threshold]
 
-    # ------------------------------------------------------------------
-    # Format x-axis.
-    #
-    # Major ticks are years.
-    # Minor ticks are months.
-    # ------------------------------------------------------------------
-    years = mdates.YearLocator()
-    years_fmt = mdates.DateFormatter("%Y")
+    if s.empty:
+        return s
 
-    months = mdates.MonthLocator()
-    months_fmt = mdates.DateFormatter("%b")
+    if func == "mean":
+        return s.resample(freq).mean().dropna()
+    if func == "sum":
+        return s.resample(freq).sum().dropna()
+    if func == "median":
+        return s.resample(freq).median().dropna()
+    if func == "max":
+        return s.resample(freq).max().dropna()
+    if func == "min":
+        return s.resample(freq).min().dropna()
 
-    ax.xaxis.set_major_locator(years)
-    ax.xaxis.set_major_formatter(years_fmt)
+    raise ValueError(
+        "func must be one of: 'mean', 'sum', 'median', 'max', or 'min'."
+    )
 
-    ax.xaxis.set_minor_locator(months)
-    ax.xaxis.set_minor_formatter(months_fmt)
-
-    plt.setp(ax.xaxis.get_minorticklabels(), fontsize=6, rotation=90)
-
-    ax.tick_params(axis="both", labelsize=8, rotation=0)
-    ax.tick_params(axis="x", pad=15)
-
-    # Add small x-axis margin so edge points are not clipped.
-    ax.margins(x=0.01)
-
-    # ------------------------------------------------------------------
-    # Add legend only if there are labeled plot elements.
-    #
-    # Remove duplicate labels while preserving order.
-    # This is helpful because ensemble loops may create repeated labels.
-    # ------------------------------------------------------------------
-    handles, labels = ax.get_legend_handles_labels()
-
-    if labels:
-        unique = {}
-
-        for handle, label in zip(handles, labels):
-            if label not in unique:
-                unique[label] = handle
-
-        ax.legend(
-            unique.values(),
-            unique.keys(),
-            fontsize=8,
-            ncol=3,
-        )
-
-    plt.tight_layout()
-
-    # ------------------------------------------------------------------
-    # Save figure.
-    # ------------------------------------------------------------------
-    if savefig:
-        if filename is None:
-            filename = f"tensemble_{obgnam}.png"
-
-        fig.savefig(filename, bbox_inches="tight", dpi=dpi)
-
-    if show:
-        plt.show()
-
-    return fig, ax
-
-
-
-def plot_parameter_ensemble(
-    pst,
-    *,
-    pr_pe=None,
-    pt_pe=None,
-    sel_pars=None,
-    width=7,
-    height=5,
-    ncols=3,
-    nbins=20,
-    bestcand=None,
-    parobj_file=None,
-    wd=None,
-    savefig=False,
-    filename=None,
-    dpi=300,
-    show=False,
+def aggregate_observation_ensemble(
+    ensemble_df,
+    obs_names,
+    times,
+    freq="MS",
+    func="mean",
+    reference_index=None,
 ):
     """
-    Plot histograms of prior and/or posterior parameter ensembles.
-
-    This function supports:
-
-    1. Prior only
-    2. Posterior only
-    3. Prior + posterior
-
-    The function also accepts pyemu.ParameterEnsemble objects directly,
-    as long as `_ensemble_to_dataframe()` is available in the same module.
+    Aggregate each realization in an observation ensemble.
 
     Parameters
     ----------
-    pst : pyemu.Pst
-        PEST control file object. Used to access pst.parameter_data.
+    ensemble_df : pandas.DataFrame
+        Rows are realizations and columns are observation names.
 
-    pr_pe : pandas.DataFrame or pyemu.ParameterEnsemble, optional
-        Prior parameter ensemble. Rows are realizations and columns are parameter names.
+    obs_names : list-like
+        Observation names to use.
 
-    pt_pe : pandas.DataFrame or pyemu.ParameterEnsemble, optional
-        Posterior parameter ensemble. Rows are realizations and columns are parameter names.
+    times : list-like
+        Datetime values corresponding to obs_names.
 
-    sel_pars : pandas.DataFrame, list-like, or None, optional
-        Selected parameters to plot.
-
-        If DataFrame, it should contain at least:
-        - parnme
-
-        Recommended columns:
-        - parnme
-        - parlbnd
-        - parubnd
-        - offset
-
-        If sel_pars is None, parameters are selected from the available ensemble columns
-        and merged with pst.parameter_data.
-
-    width, height : float, optional
-        Figure size in inches.
-
-    ncols : int, optional
-        Number of subplot columns.
-
-    nbins : int, optional
-        Number of histogram bins.
-
-    bestcand : str, optional
-        Best candidate realization name. Used only with parobj_file.
-
-    parobj_file : str or path-like, optional
-        CSV file containing parameter values for candidate realizations.
-        It should contain a "real_name" column and parameter-name columns.
-
-    wd : str or path-like, optional
-        Working directory for parobj_file if parobj_file is a relative path.
-
-    savefig : bool, optional
-        If True, save the figure.
-
-    filename : str, optional
-        Output filename. If None, "parameter_ensemble.png" is used.
-
-    dpi : int, optional
-        Resolution for saved figure.
-
-    show : bool, optional
-        If True, call plt.show() inside the function.
+    reference_index : pandas.DatetimeIndex, optional
+        If provided, each aggregated realization is reindexed to this index.
 
     Returns
     -------
-    fig : matplotlib.figure.Figure
-        Matplotlib figure object.
-
-    axes : numpy.ndarray
-        Array of matplotlib axes.
+    pandas.DataFrame
+        Aggregated ensemble with:
+            rows = realizations
+            columns = aggregated timestamps
     """
+    ensemble_df = _ensemble_to_dataframe(ensemble_df)
 
-    # ------------------------------------------------------------------
-    # Convert pyemu ensemble-like objects to pandas DataFrames.
-    # This allows direct use of:
-    #
-    # pyemu.ParameterEnsemble.from_csv(...)
-    # ------------------------------------------------------------------
-    pr_pe = _ensemble_to_dataframe(pr_pe, name="pr_pe")
-    pt_pe = _ensemble_to_dataframe(pt_pe, name="pt_pe")
+    aggregated = {}
 
-    has_prior = pr_pe is not None
-    has_posterior = pt_pe is not None
-
-    if not has_prior and not has_posterior:
-        raise ValueError("At least one of pr_pe or pt_pe must be provided.")
-
-    # ------------------------------------------------------------------
-    # Prepare pst.parameter_data.
-    # Some PEST/pyEMU objects store parameter names in the index, so we
-    # make sure a 'parnme' column exists.
-    # ------------------------------------------------------------------
-    par_data = pst.parameter_data.copy()
-
-    if "parnme" not in par_data.columns:
-        par_data["parnme"] = par_data.index
-
-    # These columns are needed to create histogram bins.
-    required_cols = ["parnme", "parlbnd", "parubnd"]
-    missing_cols = [col for col in required_cols if col not in par_data.columns]
-
-    if missing_cols:
-        raise KeyError(
-            f"pst.parameter_data is missing required columns: {missing_cols}"
+    for realization in ensemble_df.index:
+        s = aggregate_series(
+            ensemble_df.loc[realization, obs_names].to_numpy(),
+            times,
+            freq=freq,
+            func=func,
         )
 
-    # Keep useful metadata columns if they exist.
-    meta_cols = ["parnme", "parlbnd", "parubnd"]
+        if reference_index is not None:
+            s = s.reindex(reference_index)
 
-    for optional_col in ["partrans", "parchglim", "pargp", "scale", "offset"]:
-        if optional_col in par_data.columns:
-            meta_cols.append(optional_col)
+        aggregated[realization] = s.to_numpy()
 
-    par_meta = par_data[meta_cols].copy()
+    if reference_index is None:
+        reference_index = s.index
 
-    # ------------------------------------------------------------------
-    # Identify parameter columns available in the provided ensembles.
-    # ------------------------------------------------------------------
-    available_pars = set()
+    return pd.DataFrame(
+        aggregated,
+        index=reference_index,
+    ).T
 
-    if has_prior:
-        available_pars.update(pr_pe.columns)
+def build_posterior_fill(pt_oe, pst=None, obgnam=None, obs_names=None, times=None):
+    """
+    Build posterior min/max uncertainty band for time-series plotting.
 
-    if has_posterior:
-        available_pars.update(pt_pe.columns)
+    If obs_names and times are provided, this works for one selected
+    observation group and can also support monthly aggregated ensembles.
 
-    # ------------------------------------------------------------------
-    # Build selected parameter dataframe.
-    #
-    # sel_pars can be:
-    # - None
-    # - list of parameter names
-    # - DataFrame such as your df_pars filtered by partrans == "log"
-    # ------------------------------------------------------------------
-    if sel_pars is None:
-        sel_pars_df = par_meta.loc[
-            par_meta["parnme"].isin(available_pars)
-        ].copy()
+    If pst is provided and obs_names is None, this builds pt_fill for all
+    observations using pst.observation_data.
+    """
+    pt_oe = _ensemble_to_dataframe(pt_oe, name="pt_oe")
 
-    elif isinstance(sel_pars, pd.DataFrame):
-        sel_pars_df = sel_pars.copy()
-
-        if "parnme" not in sel_pars_df.columns:
-            raise KeyError("sel_pars DataFrame must contain a 'parnme' column.")
-
-        # Add missing metadata from pst.parameter_data.
-        missing_from_sel = [
-            col for col in ["parlbnd", "parubnd", "offset"]
-            if col not in sel_pars_df.columns
-        ]
-
-        if missing_from_sel:
-            sel_pars_df = sel_pars_df.merge(
-                par_meta,
-                on="parnme",
-                how="left",
-                suffixes=("", "_pst"),
-            )
-
-            for col in missing_from_sel:
-                pst_col = f"{col}_pst"
-                if pst_col in sel_pars_df.columns:
-                    sel_pars_df[col] = sel_pars_df[pst_col]
-
-            drop_cols = [
-                col for col in sel_pars_df.columns
-                if col.endswith("_pst")
-            ]
-            sel_pars_df.drop(columns=drop_cols, inplace=True)
-
-    else:
-        # Assume sel_pars is list-like.
-        sel_pars_df = pd.DataFrame({"parnme": list(sel_pars)})
-        sel_pars_df = sel_pars_df.merge(
-            par_meta,
-            on="parnme",
-            how="left",
+    if obs_names is not None:
+        df_fill = pd.DataFrame(
+            {
+                "pt_min": pt_oe[obs_names].min(axis=0).to_numpy(),
+                "pt_max": pt_oe[obs_names].max(axis=0).to_numpy(),
+                "obgnme": obgnam,
+            },
+            index=pd.to_datetime(times),
         )
 
-    # ------------------------------------------------------------------
-    # Keep only parameters that exist in at least one provided ensemble.
-    # ------------------------------------------------------------------
-    sel_pars_df = sel_pars_df.loc[
-        sel_pars_df["parnme"].isin(available_pars)
-    ].copy()
+        return df_fill.sort_index()
 
-    if sel_pars_df.empty:
-        raise ValueError(
-            "No selected parameters were found in the provided ensemble(s)."
-        )
+    if pst is None:
+        raise ValueError("pst is required when obs_names is not provided.")
 
-    # ------------------------------------------------------------------
-    # Make sure parameter bounds exist.
-    # ------------------------------------------------------------------
-    if sel_pars_df["parlbnd"].isna().any() or sel_pars_df["parubnd"].isna().any():
-        missing_bound_pars = sel_pars_df.loc[
-            sel_pars_df["parlbnd"].isna() | sel_pars_df["parubnd"].isna(),
-            "parnme",
-        ].tolist()
-
-        raise ValueError(
-            "Some selected parameters are missing bounds. "
-            f"Example(s): {missing_bound_pars[:5]}"
-        )
-
-    # ------------------------------------------------------------------
-    # Use parameter offsets if available.
-    # If not available, assume zero offset.
-    #
-    # In your sel_pars table, offset already exists, so the function
-    # will use it directly.
-    # ------------------------------------------------------------------
-    if "offset" not in sel_pars_df.columns:
-        sel_pars_df["offset"] = 0.0
-
-    sel_pars_df["offset"] = sel_pars_df["offset"].fillna(0.0)
-
-    # ------------------------------------------------------------------
-    # Read best-candidate parameter object file once, if requested.
-    # Do not read this inside the loop.
-    # ------------------------------------------------------------------
-    bestcand_df = None
-
-    if parobj_file is not None:
-        parobj_path = Path(parobj_file)
-
-        if not parobj_path.is_absolute() and wd is not None:
-            parobj_path = Path(wd) / parobj_path
-
-        bestcand_df = pd.read_csv(parobj_path)
-
-        if "real_name" not in bestcand_df.columns:
-            raise KeyError(
-                "parobj_file must contain a 'real_name' column."
-            )
-
-        if bestcand is None:
-            raise ValueError(
-                "parobj_file was provided, but bestcand is None."
-            )
-
-    # ------------------------------------------------------------------
-    # Create subplot layout.
-    # squeeze=False makes axes always a 2D array, even with one row.
-    # ------------------------------------------------------------------
-    npars = len(sel_pars_df)
-    nrows = math.ceil(npars / ncols)
-
-    fig, axes = plt.subplots(
-        nrows=nrows,
-        ncols=ncols,
-        figsize=(width, height),
-        squeeze=False,
+    df_fill = pd.DataFrame(
+        {
+            "pt_min": pt_oe.min(axis=0),
+            "pt_max": pt_oe.max(axis=0),
+        }
     )
 
-    # ------------------------------------------------------------------
-    # Plot histograms.
-    # ------------------------------------------------------------------
-    first_legend_axis = True
+    obs_data = pst.observation_data.copy()
+    df_fill["obgnme"] = obs_data.loc[df_fill.index, "obgnme"]
+    df_fill["time"] = parse_observation_times(df_fill.index)
 
-    for i, ax in enumerate(axes.flat):
-        if i >= npars:
-            ax.axis("off")
+    return (
+        df_fill
+        .dropna(subset=["time"])
+        .set_index("time")
+        .sort_index()
+    )
+
+
+# FDC helpers
+def calculate_fdc(values, logy=False, missing_threshold=-999):
+    """
+    Calculate a flow duration curve.
+
+    Exceedance probability:
+        P = rank / (n + 1) * 100
+    """
+    values = pd.Series(values)
+    values = pd.to_numeric(values, errors="coerce").dropna()
+    values = values.loc[values > missing_threshold]
+
+    if logy:
+        values = values.loc[values > 0]
+
+    if values.empty:
+        return None, None
+
+    sorted_values = np.sort(values.to_numpy(dtype=float))[::-1]
+    n = len(sorted_values)
+
+    exceedance = np.arange(1, n + 1) / (n + 1) * 100.0
+
+    return exceedance, sorted_values
+
+def calculate_fdc_band(
+    ensemble_df,
+    obs_names,
+    quantiles=(0.05, 0.95),
+    logy=False,
+):
+    """
+    Calculate an FDC-space uncertainty band from an ensemble.
+
+    This should be used instead of date-based pt_fill for FDC plots.
+    """
+    ensemble_df = _ensemble_to_dataframe(ensemble_df)
+
+    fdc_arrays = []
+    exceedance_ref = None
+    expected_length = None
+
+    for realization in ensemble_df.index:
+        x, y = calculate_fdc(
+            ensemble_df.loc[realization, obs_names],
+            logy=logy,
+        )
+
+        if x is None:
             continue
 
-        parnme = sel_pars_df.iloc[i]["parnme"]
-        parlbnd = float(sel_pars_df.iloc[i]["parlbnd"])
-        parubnd = float(sel_pars_df.iloc[i]["parubnd"])
-        offset = float(sel_pars_df.iloc[i]["offset"])
+        if expected_length is None:
+            expected_length = len(y)
+            exceedance_ref = x
 
-        # Histogram bins are based on parameter bounds plus offset.
-        bin_edges = np.linspace(
-            parlbnd + offset,
-            parubnd + offset,
-            nbins + 1,
-        )
+        if len(y) != expected_length:
+            continue
 
-        # --------------------------------------------------------------
-        # Prior histogram
-        # --------------------------------------------------------------
-        if has_prior and parnme in pr_pe.columns:
-            prior_vals = pr_pe[parnme].dropna().to_numpy(dtype=float) + offset
+        fdc_arrays.append(y)
 
-            ax.hist(
-                prior_vals,
-                bins=bin_edges,
-                color="gray",
-                alpha=0.5,
-                density=False,
-                label="Prior" if first_legend_axis else None,
-            )
-
-        # --------------------------------------------------------------
-        # Posterior histogram
-        # --------------------------------------------------------------
-        if has_posterior and parnme in pt_pe.columns:
-            post_vals = pt_pe[parnme].dropna().to_numpy(dtype=float) + offset
-
-            ax.hist(
-                post_vals,
-                bins=bin_edges,
-                alpha=0.5,
-                density=False,
-                label="Posterior" if first_legend_axis else None,
-            )
-
-        # --------------------------------------------------------------
-        # Best-candidate vertical line
-        # --------------------------------------------------------------
-        if bestcand_df is not None:
-            if parnme in bestcand_df.columns:
-                match = bestcand_df.loc[
-                    bestcand_df["real_name"] == bestcand,
-                    parnme,
-                ]
-
-                if not match.empty:
-                    x_best = float(match.iloc[0]) + offset
-
-                    ax.axvline(
-                        x=x_best,
-                        color="red",
-                        linestyle="--",
-                        alpha=0.7,
-                        label="Best candidate" if first_legend_axis else None,
-                    )
-
-        # --------------------------------------------------------------
-        # Subplot formatting
-        # --------------------------------------------------------------
-        ax.set_title(
-            parnme,
-            fontsize=9,
-            loc="left",
-            x=0.05,
-            y=0.92,
-        )
-
-        ax.tick_params(axis="x", labelsize=8)
-        ax.tick_params(axis="y", labelsize=8)
-
-        if first_legend_axis:
-            handles, labels = ax.get_legend_handles_labels()
-            if labels:
-                ax.legend(fontsize=8)
-            first_legend_axis = False
-
-    # ------------------------------------------------------------------
-    # Shared figure labels.
-    # ------------------------------------------------------------------
-    fig.supxlabel("Parameter relative change (%)", fontsize=10)
-    fig.supylabel("Frequency", fontsize=10)
-
-    plt.tight_layout()
-
-    # ------------------------------------------------------------------
-    # Save figure only when requested.
-    # ------------------------------------------------------------------
-    if savefig:
-        if filename is None:
-            filename = "parameter_ensemble.png"
-
-        fig.savefig(filename, bbox_inches="tight", dpi=dpi)
-
-    # ------------------------------------------------------------------
-    # Show figure only when requested.
-    # In notebooks, using display(fig); plt.close(fig) outside the function
-    # is often cleaner.
-    # ------------------------------------------------------------------
-    if show:
-        plt.show()
-
-    return fig, axes
-
-
-def _ensemble_to_dataframe(ensemble, name="ensemble"):
-    """
-    Convert a pyemu ensemble-like object or pandas DataFrame to a pandas DataFrame.
-
-    This helper makes the plotting function safer because pyemu objects such as
-    pyemu.ObservationEnsemble may behave like a dataframe but may not pass a strict
-    isinstance(..., pd.DataFrame) check.
-    """
-
-    if ensemble is None:
+    if not fdc_arrays:
         return None
 
-    if isinstance(ensemble, pd.DataFrame):
-        return ensemble.copy()
+    fdc_matrix = np.vstack(fdc_arrays)
 
-    if hasattr(ensemble, "_df"):
-        return ensemble._df.copy()
+    q_low, q_high = quantiles
 
-    if hasattr(ensemble, "to_dataframe"):
-        return ensemble.to_dataframe().copy()
-
-    try:
-        return pd.DataFrame(
-            ensemble,
-            index=ensemble.index,
-            columns=ensemble.columns,
-        ).copy()
-    except Exception as err:
-        raise TypeError(
-            f"{name} must be a pandas DataFrame, pyemu ensemble-like object, or None. "
-            f"Could not convert object of type {type(ensemble)} to DataFrame."
-        ) from err
+    return {
+        "exceedance": exceedance_ref,
+        "low": np.nanquantile(fdc_matrix, q_low, axis=0),
+        "high": np.nanquantile(fdc_matrix, q_high, axis=0),
+        "median": np.nanmedian(fdc_matrix, axis=0),
+        "matrix": fdc_matrix,
+    }
 
 
 
-
+# Plotting functions
 def plot_ies_phi_evolution(
     phi_file: Union[str, Path],
     phi_col: str = "mean",
@@ -1217,9 +607,6 @@ def plot_ies_phi_evolution(
         plt.show()
 
     return fig, ax, phi_df
-
-
-
 
 def plot_ies_phi_distribution(
     pst,
@@ -1674,6 +1061,739 @@ def plot_ies_phi_distribution(
 
     return fig, ax_return, phi_data
 
+def plot_tseries_ensemble(
+    pst,
+    obgnam,
+    *,
+    pr_oe=None,
+    pt_oe=None,
+    width=10,
+    height=3,
+    dot=False,
+    bstcd=None,
+    pt_fill=None,
+    ymin=None,
+    ymax=None,
+    auto_ylim_from_pt_fill=False,
+    ylim_pad_fraction=0.10,
+    include_obs_in_ylim=True,
+    aggregate_freq=None,
+    aggregate_func="mean",
+    savefig=False,
+    filename=None,
+    dpi=300,
+    show=False,
+    pst_file=None,
+    model_dir=None,
+    case=None,
+    last_iter=None,
+    auto_load_ies=False,
+    auto_build_pt_fill=True,
+):
+    """
+    Plot observed time-series data with optional prior and posterior output ensembles.
+
+    This function is designed for PESTPP-IES output ensembles.
+
+    It supports:
+
+        1. Observed data only
+        2. Observed data + prior ensemble
+        3. Observed data + posterior ensemble
+        4. Observed data + prior and posterior ensembles
+        5. Daily or temporally aggregated values, such as monthly means
+
+    Recommended visual order
+    ------------------------
+    The plotting order is intentionally controlled as:
+
+        1. Prior ensemble
+        2. Posterior ensemble or posterior uncertainty band
+        3. Best-estimate posterior realization, if requested
+        4. Observed values
+
+    This order keeps the observed data visible on top of the uncertainty
+    information.
+
+    Temporal aggregation
+    --------------------
+    If aggregate_freq is provided, the function aggregates observed,
+    prior ensemble, and posterior ensemble values before plotting.
+
+    Example monthly-average plot:
+
+        aggregate_freq = "MS"
+        aggregate_func = "mean"
+
+    Common pandas frequencies:
+        "MS" = month start
+        "M"  = month end
+        "YS" = year start
+
+    Common aggregation functions:
+        "mean", "sum", "median", "max", "min"
+
+    Parameters
+    ----------
+    pst : pyemu.Pst
+        PEST control file object.
+
+        The function uses:
+            - pst.observation_data
+            - pst.nnz_obs_groups
+
+    obgnam : str
+        Observation group name to plot.
+
+    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Prior output ensemble.
+
+        Rows should be realization names and columns should be observation names.
+
+    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Posterior output ensemble.
+
+        Rows should be realization names and columns should be observation names.
+
+    width, height : float, optional
+        Figure size in inches.
+
+    dot : bool, default False
+        If True, plot ensemble realizations as scatter points.
+
+        If False, plot ensemble realizations as lines or posterior band.
+
+    bstcd : str, optional
+        Best-estimate realization name to plot from posterior ensemble.
+
+        This requires pt_oe.
+
+    pt_fill : pandas.DataFrame, optional
+        Posterior uncertainty range.
+
+        Expected columns:
+            - obgnme
+            - pt_min
+            - pt_max
+
+        Expected index:
+            datetime-like values compatible with the x-axis.
+
+        If provided, the function plots a posterior uncertainty band instead
+        of plotting every posterior realization as blue lines.
+
+        Important:
+            If aggregate_freq is not None, the function ignores daily pt_fill
+            and rebuilds df_fill from the aggregated posterior ensemble.
+
+    ymin, ymax : float, optional
+        Optional manual y-axis limits.
+
+        If provided, these override auto y-axis behavior.
+
+    auto_ylim_from_pt_fill : bool, default False
+        If True, automatically set y-axis limits from the posterior
+        uncertainty band.
+
+    ylim_pad_fraction : float, default 0.10
+        Fractional padding added to automatically calculated y-axis limits.
+
+    include_obs_in_ylim : bool, default True
+        If True and auto_ylim_from_pt_fill=True, observed values are also
+        included when calculating automatic y-axis limits.
+
+    aggregate_freq : str, optional
+        Temporal aggregation frequency.
+
+        Example:
+            "MS" for monthly average.
+
+        If None, the original daily values are used.
+
+    aggregate_func : str, default "mean"
+        Aggregation function.
+
+        Supported values depend on your aggregate_series() helper, but should
+        include:
+            "mean", "sum", "median", "max", "min"
+
+    savefig : bool, default False
+        If True, save the figure as a PNG file.
+
+    filename : str or pathlib.Path, optional
+        Output filename.
+
+        If None and savefig=True, a default filename is generated.
+
+    dpi : int, default 300
+        Resolution for saved figure.
+
+    show : bool, default False
+        If True, call plt.show().
+
+    pst_file : str or pathlib.Path, optional
+        PEST control file path used when auto_load_ies=True.
+
+    model_dir : str or pathlib.Path, optional
+        Folder containing PESTPP-IES output files.
+
+    case : str, optional
+        PEST++ case name.
+
+    last_iter : int, optional
+        Posterior IES iteration. If None, latest iteration can be inferred by
+        load_ies_observation_ensembles().
+
+    auto_load_ies : bool, default False
+        If True, automatically load prior/posterior observation ensembles.
+
+    auto_build_pt_fill : bool, default True
+        If True and auto_load_ies=True, also build posterior fill dataframe.
+
+    Returns
+    -------
+    fig, ax
+        Matplotlib figure and axis objects.
+    """
+
+    # ------------------------------------------------------------------
+    # Optional automatic loading for PESTPP-IES outputs.
+    #
+    # This allows simple calls such as:
+    #
+    #     plot_tseries_ensemble(
+    #         pst_file=model_dir / "pecos_rw_ies.pst",
+    #         obgnam="stf_08447300",
+    #         auto_load_ies=True,
+    #     )
+    #
+    # The function will load:
+    #     case.0.obs.csv
+    #     case.<last_iter>.obs.csv
+    #     pt_fill
+    # ------------------------------------------------------------------
+    if auto_load_ies:
+        ies = load_ies_observation_ensembles(
+            pst=pst,
+            pst_file=pst_file,
+            model_dir=model_dir,
+            case=case,
+            last_iter=last_iter,
+            build_pt_fill=auto_build_pt_fill,
+        )
+
+        pst = ies["pst"]
+
+        if pr_oe is None:
+            pr_oe = ies["pr_oe"]
+
+        if pt_oe is None:
+            pt_oe = ies["pt_oe"]
+
+        if pt_fill is None and auto_build_pt_fill:
+            pt_fill = ies["pt_fill"]
+
+    # ------------------------------------------------------------------
+    # Convert pyEMU ensemble-like objects to pandas DataFrames.
+    # ------------------------------------------------------------------
+    pr_oe = _ensemble_to_dataframe(pr_oe, name="pr_oe")
+    pt_oe = _ensemble_to_dataframe(pt_oe, name="pt_oe")
+
+    has_prior = pr_oe is not None
+    has_posterior = pt_oe is not None
+
+    # ------------------------------------------------------------------
+    # Get observation data from the PEST control file.
+    #
+    # We keep only observations from non-zero-weight observation groups.
+    # ------------------------------------------------------------------
+    obs = pst.observation_data.copy()
+    obs = obs.loc[obs.obgnme.isin(pst.nnz_obs_groups)].copy()
+
+    # ------------------------------------------------------------------
+    # Extract time information from observation names.
+    #
+    # This assumes the last 8 characters of obsnme are dates.
+    # ------------------------------------------------------------------
+    obs["time"] = pd.to_datetime(obs.obsnme.str[-8:], errors="coerce")
+
+    # ------------------------------------------------------------------
+    # Select the requested observation group.
+    # ------------------------------------------------------------------
+    oobs = obs.loc[obs.obgnme == obgnam].copy()
+
+    if oobs.empty:
+        raise ValueError(f"No observations found for observation group: {obgnam}")
+
+    # ------------------------------------------------------------------
+    # Remove observations where date parsing failed.
+    # ------------------------------------------------------------------
+    oobs = oobs.dropna(subset=["time"]).copy()
+
+    if oobs.empty:
+        raise ValueError(
+            f"Observations were found for {obgnam}, but no valid dates could be parsed "
+            "from the last 8 characters of obsnme."
+        )
+
+    # ------------------------------------------------------------------
+    # Sort observations by time so lines follow chronological order.
+    # ------------------------------------------------------------------
+    oobs.sort_values("time", inplace=True)
+
+    tvals = oobs.time.to_numpy()
+    onames = oobs.obsnme.to_numpy()
+
+    # ------------------------------------------------------------------
+    # Prepare prior ensemble.
+    #
+    # Values <= -999 are treated as missing values.
+    # ------------------------------------------------------------------
+    if has_prior:
+        pr_oe = pr_oe.where(pr_oe > -999)
+
+        missing_prior_cols = [name for name in onames if name not in pr_oe.columns]
+
+        if missing_prior_cols:
+            raise KeyError(
+                f"{len(missing_prior_cols)} observation names are missing from pr_oe. "
+                f"Example missing name: {missing_prior_cols[0]}"
+            )
+
+    # ------------------------------------------------------------------
+    # Prepare posterior ensemble.
+    # ------------------------------------------------------------------
+    if has_posterior:
+        pt_oe = pt_oe.where(pt_oe > -999)
+
+        missing_post_cols = [name for name in onames if name not in pt_oe.columns]
+
+        if missing_post_cols:
+            raise KeyError(
+                f"{len(missing_post_cols)} observation names are missing from pt_oe. "
+                f"Example missing name: {missing_post_cols[0]}"
+            )
+
+    # ------------------------------------------------------------------
+    # Prepare observed values with non-zero weight.
+    #
+    # These will be plotted last so they remain visible.
+    #
+    # Important:
+    #     We prepare this before aggregation because monthly aggregation
+    #     should use only non-zero-weight observations.
+    # ------------------------------------------------------------------
+    oobs_nonzero = oobs.loc[oobs.weight > 0].copy()
+
+    # ------------------------------------------------------------------
+    # Optional temporal aggregation.
+    #
+    # If aggregate_freq is provided, daily values are aggregated before
+    # plotting. This is useful for monthly average plots.
+    #
+    # Example:
+    #     aggregate_freq = "MS"
+    #     aggregate_func = "mean"
+    #
+    # After aggregation:
+    #     tvals         -> aggregated timestamps
+    #     oobs_nonzero  -> aggregated observed values
+    #     pr_oe         -> aggregated prior ensemble
+    #     pt_oe         -> aggregated posterior ensemble
+    #     onames        -> aggregated timestamps used as ensemble columns
+    #
+    # Because the ensemble columns change from original observation names
+    # to aggregated timestamps, df_fill must be rebuilt later from the
+    # aggregated posterior ensemble.
+    # ------------------------------------------------------------------
+    if aggregate_freq is not None:
+
+        obs_agg = aggregate_series(
+            oobs_nonzero["obsval"].to_numpy(),
+            oobs_nonzero["time"].to_numpy(),
+            freq=aggregate_freq,
+            func=aggregate_func,
+        )
+
+        if obs_agg.empty:
+            raise ValueError(
+                f"No valid aggregated observed values for observation group: {obgnam}"
+            )
+
+        # Aggregated x-axis time values.
+        tvals = obs_agg.index.to_numpy()
+
+        # Replace observed dataframe with aggregated observations.
+        # Keep the same column names used later by the plotting code.
+        oobs_nonzero = pd.DataFrame(
+            {
+                "time": obs_agg.index,
+                "obsval": obs_agg.values,
+                "weight": 1.0,
+            }
+        )
+
+        # Save original daily observation names and times for ensemble aggregation.
+        daily_onames = onames.copy()
+        daily_times = oobs["time"].to_numpy()
+
+        # Aggregate prior ensemble realization by realization.
+        if has_prior:
+            pr_oe = aggregate_observation_ensemble(
+                pr_oe,
+                obs_names=daily_onames,
+                times=daily_times,
+                freq=aggregate_freq,
+                func=aggregate_func,
+                reference_index=obs_agg.index,
+            )
+
+        # Aggregate posterior ensemble realization by realization.
+        if has_posterior:
+            pt_oe = aggregate_observation_ensemble(
+                pt_oe,
+                obs_names=daily_onames,
+                times=daily_times,
+                freq=aggregate_freq,
+                func=aggregate_func,
+                reference_index=obs_agg.index,
+            )
+
+        # After aggregation, ensemble columns are timestamps, not original
+        # daily observation names.
+        onames = obs_agg.index
+
+    # ------------------------------------------------------------------
+    # Prepare posterior uncertainty band.
+    #
+    # Daily mode:
+    #     Use pt_fill if provided.
+    #
+    # Aggregated mode:
+    #     Rebuild df_fill from the aggregated posterior ensemble.
+    #
+    # This avoids plotting a daily posterior band on a monthly plot.
+    # ------------------------------------------------------------------
+    if aggregate_freq is not None and has_posterior:
+        df_fill = build_posterior_fill(
+            pt_oe,
+            obgnam=obgnam,
+            obs_names=onames,
+            times=onames,
+        )
+
+    elif pt_fill is not None:
+        required_cols = {"obgnme", "pt_min", "pt_max"}
+        missing_cols = required_cols.difference(pt_fill.columns)
+
+        if missing_cols:
+            raise KeyError(
+                f"pt_fill is missing required columns: {sorted(missing_cols)}"
+            )
+
+        df_fill = pt_fill.loc[pt_fill["obgnme"] == obgnam].copy()
+
+        if df_fill.empty:
+            raise ValueError(f"No pt_fill records found for observation group: {obgnam}")
+
+        # Sort the fill dataframe by its datetime index to avoid strange
+        # polygons when fill_between is called.
+        df_fill = df_fill.sort_index()
+
+    else:
+        df_fill = None
+
+    # ------------------------------------------------------------------
+    # Create figure.
+    # ------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(width, height))
+
+    # ==================================================================
+    # Case 1: scatter style
+    # ==================================================================
+    if dot:
+
+        # --------------------------------------------------------------
+        # 1. Prior ensemble first.
+        # --------------------------------------------------------------
+        if has_prior:
+            for idx, realization in enumerate(pr_oe.index):
+                ax.scatter(
+                    tvals,
+                    pr_oe.loc[realization, onames].to_numpy(),
+                    color="gray",
+                    s=30,
+                    alpha=0.35,
+                    label="Prior ensemble" if idx == 0 else None,
+                    zorder=1,
+                )
+
+        # --------------------------------------------------------------
+        # 2. Posterior ensemble second.
+        # --------------------------------------------------------------
+        if has_posterior:
+            for idx, realization in enumerate(pt_oe.index):
+                ax.scatter(
+                    tvals,
+                    pt_oe.loc[realization, onames].to_numpy(),
+                    color="b",
+                    s=30,
+                    alpha=0.20,
+                    label="Posterior ensemble" if idx == 0 else None,
+                    zorder=2,
+                )
+
+        # --------------------------------------------------------------
+        # 3. Best-estimate realization, if requested.
+        #
+        # For scatter mode, plot it as a blue line so it is easy to
+        # distinguish from the ensemble cloud.
+        # --------------------------------------------------------------
+        if bstcd is not None:
+            if not has_posterior:
+                raise ValueError("bstcd was provided, but pt_oe is None.")
+
+            if bstcd not in pt_oe.index:
+                raise KeyError(
+                    f"Best-estimate realization '{bstcd}' was not found in pt_oe.index."
+                )
+
+            ax.plot(
+                tvals,
+                pt_oe.loc[bstcd, onames].to_numpy(),
+                color="b",
+                lw=1.5,
+                zorder=4,
+                label="Best estimate",
+            )
+
+        # --------------------------------------------------------------
+        # 4. Observed values last.
+        # --------------------------------------------------------------
+        ax.scatter(
+            oobs_nonzero.time,
+            oobs_nonzero.obsval,
+            edgecolor="red",
+            facecolor="none",
+            s=30,
+            alpha=0.8,
+            label="Observed",
+            zorder=5,
+        )
+
+    # ==================================================================
+    # Case 2: line/band style
+    # ==================================================================
+    else:
+
+        # --------------------------------------------------------------
+        # 1. Prior ensemble first.
+        # --------------------------------------------------------------
+        if has_prior:
+            for idx, realization in enumerate(pr_oe.index):
+                ax.plot(
+                    tvals,
+                    pr_oe.loc[realization, onames].to_numpy(),
+                    color="0.5",
+                    lw=0.5,
+                    alpha=0.45,
+                    label="Prior ensemble" if idx == 0 else None,
+                    zorder=1,
+                )
+
+        # --------------------------------------------------------------
+        # 2. Posterior ensemble second.
+        #
+        # If df_fill is available, plot posterior uncertainty as a band.
+        # If not, plot all posterior realizations.
+        # --------------------------------------------------------------
+        if has_posterior:
+            if df_fill is not None:
+
+                # Posterior uncertainty band.
+                ax.fill_between(
+                    df_fill.index,
+                    df_fill["pt_min"].to_numpy(dtype=float),
+                    df_fill["pt_max"].to_numpy(dtype=float),
+                    interpolate=False,
+                    color="b",
+                    alpha=0.35,
+                    label="Posterior range",
+                    zorder=3,
+                )
+
+                # Lower edge of posterior band.
+                ax.plot(
+                    df_fill.index,
+                    df_fill["pt_min"].to_numpy(dtype=float),
+                    color="b",
+                    lw=0.8,
+                    alpha=0.8,
+                    zorder=3,
+                )
+
+                # Upper edge of posterior band.
+                ax.plot(
+                    df_fill.index,
+                    df_fill["pt_max"].to_numpy(dtype=float),
+                    color="b",
+                    lw=0.8,
+                    alpha=0.8,
+                    zorder=3,
+                )
+
+            else:
+                for idx, realization in enumerate(pt_oe.index):
+                    ax.plot(
+                        tvals,
+                        pt_oe.loc[realization, onames].to_numpy(),
+                        color="b",
+                        lw=0.5,
+                        alpha=0.40,
+                        label="Posterior ensemble" if idx == 0 else None,
+                        zorder=2,
+                    )
+
+        # --------------------------------------------------------------
+        # 3. Best-estimate posterior realization, if requested.
+        # --------------------------------------------------------------
+        if bstcd is not None:
+            if not has_posterior:
+                raise ValueError("bstcd was provided, but pt_oe is None.")
+
+            if bstcd not in pt_oe.index:
+                raise KeyError(
+                    f"Best-estimate realization '{bstcd}' was not found in pt_oe.index."
+                )
+
+            ax.plot(
+                tvals,
+                pt_oe.loc[bstcd, onames].to_numpy(),
+                color="b",
+                lw=1.5,
+                zorder=4,
+                label="Best estimate",
+            )
+
+        # --------------------------------------------------------------
+        # 4. Observed values last.
+        # --------------------------------------------------------------
+        ax.scatter(
+            oobs_nonzero.time,
+            oobs_nonzero.obsval,
+            edgecolor="red",
+            facecolor="none",
+            s=14,
+            zorder=5,
+            alpha=0.8,
+            label="Observed",
+        )
+
+    # ------------------------------------------------------------------
+    # Automatically set y-axis limits from posterior uncertainty band.
+    #
+    # Manual ymin/ymax still take priority if provided by the user.
+    # ------------------------------------------------------------------
+    if auto_ylim_from_pt_fill and df_fill is not None and ymin is None and ymax is None:
+        y_values = []
+
+        y_values.extend(df_fill["pt_min"].dropna().to_numpy(dtype=float))
+        y_values.extend(df_fill["pt_max"].dropna().to_numpy(dtype=float))
+
+        if include_obs_in_ylim and not oobs_nonzero.empty:
+            y_values.extend(oobs_nonzero["obsval"].dropna().to_numpy(dtype=float))
+
+        y_values = np.asarray(y_values, dtype=float)
+        y_values = y_values[np.isfinite(y_values)]
+
+        if y_values.size > 0:
+            y_min_auto = y_values.min()
+            y_max_auto = y_values.max()
+
+            y_range = y_max_auto - y_min_auto
+
+            if y_range == 0:
+                pad = abs(y_max_auto) * ylim_pad_fraction
+
+                if pad == 0:
+                    pad = 1.0
+            else:
+                pad = y_range * ylim_pad_fraction
+
+            ymin = y_min_auto - pad
+            ymax = y_max_auto + pad
+
+    # ------------------------------------------------------------------
+    # Optional y-axis limits.
+    # ------------------------------------------------------------------
+    if ymin is not None or ymax is not None:
+        ax.set_ylim(ymin, ymax)
+
+    # ------------------------------------------------------------------
+    # Format x-axis.
+    #
+    # Major ticks are years.
+    # Minor ticks are months.
+    # ------------------------------------------------------------------
+    years = mdates.YearLocator()
+    years_fmt = mdates.DateFormatter("%Y")
+
+    months = mdates.MonthLocator()
+    months_fmt = mdates.DateFormatter("%b")
+
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+
+    ax.xaxis.set_minor_locator(months)
+    ax.xaxis.set_minor_formatter(months_fmt)
+
+    plt.setp(ax.xaxis.get_minorticklabels(), fontsize=6, rotation=90)
+
+    ax.tick_params(axis="both", labelsize=8, rotation=0)
+    ax.tick_params(axis="x", pad=15)
+
+    # Add small x-axis margin so edge points are not clipped.
+    ax.margins(x=0.01)
+
+    # ------------------------------------------------------------------
+    # Add legend only if there are labeled plot elements.
+    #
+    # Remove duplicate labels while preserving order.
+    # ------------------------------------------------------------------
+    handles, labels = ax.get_legend_handles_labels()
+
+    if labels:
+        unique = {}
+
+        for handle, label in zip(handles, labels):
+            if label not in unique:
+                unique[label] = handle
+
+        ax.legend(
+            unique.values(),
+            unique.keys(),
+            fontsize=8,
+            ncol=3,
+        )
+
+    plt.tight_layout()
+
+    # ------------------------------------------------------------------
+    # Save figure.
+    # ------------------------------------------------------------------
+    if savefig:
+        if filename is None:
+            if aggregate_freq is None:
+                filename = f"tensemble_{obgnam}.png"
+            else:
+                filename = f"tensemble_{aggregate_freq}_{aggregate_func}_{obgnam}.png"
+
+        fig.savefig(filename, bbox_inches="tight", dpi=dpi)
+
+    if show:
+        plt.show()
+
+    return fig, ax
 
 def plot_fdc_ensemble(
     pst=None,
@@ -1696,6 +1816,8 @@ def plot_fdc_ensemble(
     obs_dot=False,
     obs_marker_size=18,
     obs_line=True,
+    aggregate_freq=None,
+    aggregate_func="mean",
     ymin=None,
     ymax=None,
     title=None,
@@ -1708,126 +1830,36 @@ def plot_fdc_ensemble(
     Plot flow duration curves for observed data and optional prior/posterior
     PESTPP-IES output ensembles.
 
-    This function is designed for streamflow ensemble diagnostics after
-    PESTPP-IES.
+    This function supports daily FDCs and temporally aggregated FDCs.
+
+    Example daily FDC
+    -----------------
+    aggregate_freq=None
+
+    Example monthly-average FDC
+    ---------------------------
+    aggregate_freq="MS"
+    aggregate_func="mean"
 
     Main plot elements
     ------------------
-    The recommended visual order is:
+    1. Prior ensemble FDCs
+    2. Posterior FDC uncertainty band
+    3. Posterior median FDC
+    4. Observed FDC line and/or dots
 
-        1. Prior ensemble FDCs
-        2. Posterior FDC uncertainty band
-        3. Posterior median FDC
-        4. Observed FDC
+    Why FDC aggregation is handled here
+    -----------------------------------
+    If aggregate_freq is provided, each time series is aggregated first.
+    Then the FDC is calculated from the aggregated values.
 
-    Why posterior FDC band is different from time-series pt_fill
-    ------------------------------------------------------------
-    For a time-series plot, the posterior band is calculated by date:
+    For example:
 
-        date -> posterior min/max simulated flow
-
-    For a flow duration curve, the x-axis is not date. It is exceedance
-    probability. Therefore, the uncertainty band must be calculated after
-    sorting each realization into FDC space.
-
-    Parameters
-    ----------
-    pst : pyemu.Pst, optional
-        PEST control file object.
-
-    obgnam : str
-        Observation group name to plot.
-
-    pst_file : str or pathlib.Path, optional
-        PEST control file path. Used when auto_load_ies=True.
-
-        Example:
-            model_dir / "pecos_rw_ies.pst"
-
-    model_dir : str or pathlib.Path, optional
-        Folder containing PESTPP-IES output files.
-
-    case : str, optional
-        PEST++ case name. If None, inferred from pst_file stem.
-
-    last_iter : int, optional
-        Posterior iteration number.
-
-        If None and auto_load_ies=True, the latest available iteration is used.
-
-    auto_load_ies : bool, default False
-        If True, automatically load prior and posterior observation ensembles.
-
-        Expected files:
-            case.0.obs.csv
-            case.<last_iter>.obs.csv
-
-    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
-        Prior output ensemble. Rows are realizations and columns are observation names.
-
-    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
-        Posterior output ensemble.
-
-    width, height : float
-        Figure size in inches.
-
-    logy : bool, default True
-        If True, use logarithmic y-axis.
-
-    posterior_band : bool, default True
-        If True, calculate and plot posterior FDC uncertainty band.
-
-    posterior_band_quantiles : tuple, default (0.05, 0.95)
-        Lower and upper posterior quantiles for the FDC band.
-
-        Example:
-            (0.05, 0.95) gives a 5-95% interval.
-
-    plot_prior_lines : bool, default True
-        If True, plot individual prior ensemble FDCs.
-
-    plot_posterior_lines : bool, default False
-        If True, plot individual posterior ensemble FDCs.
-
-        Usually False is cleaner when posterior_band=True.
-
-    ymin, ymax : float, optional
-        Optional y-axis limits.
-
-    title : str, optional
-        Plot title.
-
-    savefig : bool, default False
-        If True, save figure.
-
-    filename : str or pathlib.Path, optional
-        Output filename.
-
-    dpi : int, default 300
-        Save resolution.
-
-    show : bool, default False
-        If True, call plt.show().
-
-    Returns
-    -------
-    fig, ax, fdc_data
-        Matplotlib figure, axis, and dictionary containing FDC data.
+        daily flow -> monthly mean flow -> monthly FDC
     """
 
     # ------------------------------------------------------------------
     # Optional automatic loading for PESTPP-IES output files.
-    #
-    # This allows a simple call:
-    #
-    #     plot_fdc_ensemble(
-    #         pst_file=model_dir / "pecos_rw_ies.pst",
-    #         obgnam="stf_08447300",
-    #         auto_load_ies=True,
-    #     )
-    #
-    # This relies on load_ies_observation_ensembles(), which should already
-    # exist in pest_ies.py.
     # ------------------------------------------------------------------
     if auto_load_ies:
         ies = load_ies_observation_ensembles(
@@ -1873,6 +1905,12 @@ def plot_fdc_ensemble(
     obs = obs.loc[obs.obgnme.isin(pst.nnz_obs_groups)].copy()
 
     # ------------------------------------------------------------------
+    # Parse dates from observation names.
+    # Assumes the last 8 characters are YYYYMMDD.
+    # ------------------------------------------------------------------
+    obs["time"] = pd.to_datetime(obs.obsnme.str[-8:], errors="coerce")
+
+    # ------------------------------------------------------------------
     # Select requested observation group.
     # ------------------------------------------------------------------
     oobs = obs.loc[obs.obgnme == obgnam].copy()
@@ -1880,8 +1918,17 @@ def plot_fdc_ensemble(
     if oobs.empty:
         raise ValueError(f"No observations found for observation group: {obgnam}")
 
-    # Observation names are used to select matching ensemble columns.
+    oobs = oobs.dropna(subset=["time"]).copy()
+
+    if oobs.empty:
+        raise ValueError(
+            f"Observations were found for {obgnam}, but no valid dates could be parsed."
+        )
+
+    oobs.sort_values("time", inplace=True)
+
     onames = oobs.obsnme.to_numpy()
+    times = oobs["time"].to_numpy()
 
     # ------------------------------------------------------------------
     # Prepare observed values.
@@ -1890,8 +1937,28 @@ def plot_fdc_ensemble(
     oobs_nonzero = oobs.loc[oobs.weight > 0].copy()
 
     obs_values = pd.to_numeric(oobs_nonzero.obsval, errors="coerce")
-    obs_values = obs_values.dropna()
-    obs_values = obs_values.loc[obs_values > -999]
+    obs_times = oobs_nonzero["time"].to_numpy()
+
+    # ------------------------------------------------------------------
+    # If aggregation is requested, aggregate observations before FDC.
+    #
+    # Example:
+    #   aggregate_freq="MS"
+    #   aggregate_func="mean"
+    #
+    # means:
+    #   daily observed flow -> monthly average observed flow -> FDC
+    # ------------------------------------------------------------------
+    if aggregate_freq is not None:
+        obs_values = aggregate_series(
+            obs_values.to_numpy(),
+            obs_times,
+            freq=aggregate_freq,
+            func=aggregate_func,
+        )
+    else:
+        obs_values = obs_values.dropna()
+        obs_values = obs_values.loc[obs_values > -999]
 
     if obs_values.empty:
         raise ValueError(f"No valid observed values found for group: {obgnam}")
@@ -1925,20 +1992,41 @@ def plot_fdc_ensemble(
             )
 
     # ------------------------------------------------------------------
-    # Helper function to calculate one FDC.
+    # Helper to get one realization's values.
+    #
+    # If aggregate_freq is None:
+    #     return daily realization values
+    #
+    # If aggregate_freq is not None:
+    #     return aggregated realization values, e.g. monthly mean flow
+    # ------------------------------------------------------------------
+    def _get_realization_values(ensemble_df, realization):
+        values = ensemble_df.loc[realization, onames]
+
+        if aggregate_freq is not None:
+            return aggregate_series(
+                values.to_numpy(),
+                times,
+                freq=aggregate_freq,
+                func=aggregate_func,
+            )
+
+        return values
+
+    # ------------------------------------------------------------------
+    # Helper to calculate one FDC.
     #
     # Exceedance probability:
     #     P = rank / (n + 1) * 100
     #
-    # Larger flows are assigned smaller exceedance probabilities.
+    # Larger flows have smaller exceedance probabilities.
     # ------------------------------------------------------------------
     def _calculate_fdc(values):
-        values = pd.Series(values).dropna()
+        values = pd.Series(values)
         values = pd.to_numeric(values, errors="coerce").dropna()
         values = values.loc[values > -999]
 
         if logy:
-            # Log y-axis cannot show zero or negative flow.
             values = values.loc[values > 0]
 
         if values.empty:
@@ -1952,25 +2040,21 @@ def plot_fdc_ensemble(
         return exceedance, sorted_values
 
     # ------------------------------------------------------------------
-    # Helper function to calculate posterior FDC band.
+    # Helper to calculate posterior FDC uncertainty band.
     #
-    # Steps:
-    #   1. Calculate FDC for each posterior realization.
-    #   2. Stack all sorted FDC values into an array.
+    # The band is calculated in FDC space:
+    #   1. Aggregate each realization if requested.
+    #   2. Sort each realization into FDC values.
     #   3. Calculate quantiles across realizations at each exceedance rank.
-    #
-    # This assumes each realization has the same number of valid flow values,
-    # which is normally true because all realizations share the same observation
-    # columns. If some realizations have missing values, they are skipped if
-    # their FDC length differs from the first valid realization.
     # ------------------------------------------------------------------
-    def _calculate_fdc_band(ensemble_df, obs_names, quantiles=(0.05, 0.95)):
+    def _calculate_fdc_band(ensemble_df, quantiles=(0.05, 0.95)):
         fdc_arrays = []
         exceedance_ref = None
         expected_length = None
 
         for realization in ensemble_df.index:
-            x, y = _calculate_fdc(ensemble_df.loc[realization, obs_names])
+            values = _get_realization_values(ensemble_df, realization)
+            x, y = _calculate_fdc(values)
 
             if x is None:
                 continue
@@ -1979,8 +2063,7 @@ def plot_fdc_ensemble(
                 expected_length = len(y)
                 exceedance_ref = x
 
-            # Skip inconsistent realization lengths.
-            # This prevents array-shape errors when missing values differ.
+            # Skip inconsistent lengths caused by missing values.
             if len(y) != expected_length:
                 continue
 
@@ -1993,15 +2076,11 @@ def plot_fdc_ensemble(
 
         q_low, q_high = quantiles
 
-        fdc_low = np.nanquantile(fdc_matrix, q_low, axis=0)
-        fdc_high = np.nanquantile(fdc_matrix, q_high, axis=0)
-        fdc_median = np.nanmedian(fdc_matrix, axis=0)
-
         return {
             "exceedance": exceedance_ref,
-            "low": fdc_low,
-            "high": fdc_high,
-            "median": fdc_median,
+            "low": np.nanquantile(fdc_matrix, q_low, axis=0),
+            "high": np.nanquantile(fdc_matrix, q_high, axis=0),
+            "median": np.nanmedian(fdc_matrix, axis=0),
             "matrix": fdc_matrix,
         }
 
@@ -2014,11 +2093,11 @@ def plot_fdc_ensemble(
 
     # ------------------------------------------------------------------
     # 1. Prior ensemble FDCs.
-    # Plot first so they stay in the background.
     # ------------------------------------------------------------------
     if has_prior and plot_prior_lines:
         for idx, realization in enumerate(pr_oe.index):
-            x, y = _calculate_fdc(pr_oe.loc[realization, onames])
+            values = _get_realization_values(pr_oe, realization)
+            x, y = _calculate_fdc(values)
 
             if x is None:
                 continue
@@ -2034,14 +2113,11 @@ def plot_fdc_ensemble(
             )
 
     # ------------------------------------------------------------------
-    # 2. Posterior ensemble FDC band.
-    #
-    # This is the FDC-space uncertainty band, not date-based pt_fill.
+    # 2. Posterior FDC uncertainty band.
     # ------------------------------------------------------------------
     if has_posterior and posterior_band:
         pt_band = _calculate_fdc_band(
             pt_oe,
-            onames,
             quantiles=posterior_band_quantiles,
         )
 
@@ -2076,12 +2152,11 @@ def plot_fdc_ensemble(
 
     # ------------------------------------------------------------------
     # 3. Optional posterior individual FDC lines.
-    #
-    # Usually leave this False if posterior_band=True.
     # ------------------------------------------------------------------
     if has_posterior and plot_posterior_lines:
         for idx, realization in enumerate(pt_oe.index):
-            x, y = _calculate_fdc(pt_oe.loc[realization, onames])
+            values = _get_realization_values(pt_oe, realization)
+            x, y = _calculate_fdc(values)
 
             if x is None:
                 continue
@@ -2098,7 +2173,7 @@ def plot_fdc_ensemble(
 
     # ------------------------------------------------------------------
     # 4. Observed FDC.
-    # Plot last and thicker so it is clearly visible.
+    # Plot last so it stays visible.
     # ------------------------------------------------------------------
     x_obs, y_obs = _calculate_fdc(obs_values)
 
@@ -2110,22 +2185,6 @@ def plot_fdc_ensemble(
         "flow": y_obs,
     }
 
-    # ------------------------------------------------------------------
-    # 4. Observed FDC.
-    #
-    # The observed FDC is plotted last so it stays visible above the
-    # prior/posterior ensemble information.
-    #
-    # Options:
-    #   obs_line=True, obs_dot=False
-    #       -> red observed line only
-    #
-    #   obs_line=False, obs_dot=True
-    #       -> red hollow observed dots only
-    #
-    #   obs_line=True, obs_dot=True
-    #       -> red line with hollow observed dots
-    # ------------------------------------------------------------------
     if obs_line:
         ax.plot(
             x_obs,
@@ -2152,7 +2211,12 @@ def plot_fdc_ensemble(
     # Axis formatting.
     # ------------------------------------------------------------------
     ax.set_xlabel("Exceedance probability (%)")
-    ax.set_ylabel("Flow")
+
+    if aggregate_freq is None:
+        ax.set_ylabel("Flow")
+    else:
+        ax.set_ylabel(f"{aggregate_func.capitalize()} flow")
+
     ax.set_xlim(0, 100)
 
     if logy:
@@ -2181,13 +2245,30 @@ def plot_fdc_ensemble(
             fontsize=8,
         )
 
-    ax.set_title(title or f"Flow Duration Curve: {obgnam}")
+    # ------------------------------------------------------------------
+    # Title.
+    # ------------------------------------------------------------------
+    if title is not None:
+        ax.set_title(title)
+    else:
+        if aggregate_freq is None:
+            ax.set_title(f"Flow Duration Curve: {obgnam}")
+        else:
+            ax.set_title(
+                f"Flow Duration Curve ({aggregate_freq}, {aggregate_func}): {obgnam}"
+            )
 
     fig.tight_layout()
 
+    # ------------------------------------------------------------------
+    # Save figure.
+    # ------------------------------------------------------------------
     if savefig:
         if filename is None:
-            filename = f"fdc_ensemble_{obgnam}.png"
+            if aggregate_freq is None:
+                filename = f"fdc_ensemble_{obgnam}.png"
+            else:
+                filename = f"fdc_ensemble_{aggregate_freq}_{aggregate_func}_{obgnam}.png"
 
         fig.savefig(filename, bbox_inches="tight", dpi=dpi)
 
@@ -2196,234 +2277,1029 @@ def plot_fdc_ensemble(
 
     return fig, ax, fdc_data
 
-
-def load_ies_observation_ensembles(
-    pst=None,
-    pst_file: Optional[Union[str, Path]] = None,
-    model_dir: Optional[Union[str, Path]] = None,
-    case: Optional[str] = None,
-    last_iter: Optional[int] = None,
-    build_pt_fill: bool = True,
+def plot_parameter_ensemble(
+    pst,
+    *,
+    pr_pe=None,
+    pt_pe=None,
+    sel_pars=None,
+    width=7,
+    height=5,
+    ncols=3,
+    nbins=20,
+    bestcand=None,
+    parobj_file=None,
+    wd=None,
+    savefig=False,
+    filename=None,
+    dpi=300,
+    show=False,
 ):
     """
-    Load PESTPP-IES prior and posterior observation ensembles.
+    Plot histograms of prior and/or posterior parameter ensembles.
 
-    This helper is designed to reduce repeated IPython code.
+    This function is designed for PESTPP-IES parameter ensembles.
 
-    Example
+    It supports:
+
+        1. Prior only
+        2. Posterior only
+        3. Prior + posterior
+
+    It also supports parameter selection using either:
+
+        1. sel_pars=None
+           Plot all available parameters.
+
+        2. sel_pars=list
+           Example:
+               sel_pars = ["cn2", "esco", "alpha"]
+
+        3. sel_pars=pandas.DataFrame
+           Must contain a "parnme" column.
+
+    Notes
+    -----
+    This function safely handles pyEMU pst.parameter_data where "parnme"
+    may appear both as an index and a column. That situation can cause:
+
+        ValueError: 'parnme' is both an index level and a column label
+
+    To avoid this, the function resets parameter metadata to a clean
+    dataframe where "parnme" is only a normal column.
+
+    Parameters
+    ----------
+    pst : pyemu.Pst
+        PEST control file object.
+
+    pr_pe : pandas.DataFrame or pyemu.ParameterEnsemble, optional
+        Prior parameter ensemble.
+
+        Rows are realizations and columns are parameter names.
+
+    pt_pe : pandas.DataFrame or pyemu.ParameterEnsemble, optional
+        Posterior parameter ensemble.
+
+    sel_pars : list-like or pandas.DataFrame, optional
+        Selected parameters to plot.
+
+        If list-like:
+            ["cn2", "esco", "alpha"]
+
+        If DataFrame:
+            Must contain "parnme". It can optionally contain:
+                parlbnd, parubnd, offset
+
+    width, height : float, optional
+        Figure size in inches.
+
+    ncols : int, default 3
+        Number of subplot columns.
+
+    nbins : int, default 20
+        Number of histogram bins.
+
+    bestcand : str, optional
+        Best candidate realization name. Used only with parobj_file.
+
+    parobj_file : str or pathlib.Path, optional
+        CSV file containing parameter values for candidate realizations.
+
+        It should contain:
+            real_name
+            parameter columns
+
+    wd : str or pathlib.Path, optional
+        Working directory for parobj_file if parobj_file is relative.
+
+    savefig : bool, default False
+        If True, save the figure.
+
+    filename : str or pathlib.Path, optional
+        Output filename.
+
+    dpi : int, default 300
+        Figure resolution for saving.
+
+    show : bool, default False
+        If True, call plt.show().
+
+    Returns
     -------
-    If:
+    fig : matplotlib.figure.Figure
+        Matplotlib figure object.
 
-        pst_file = model_dir / "pecos_rw_ies.pst"
+    axes : numpy.ndarray
+        Array of matplotlib axes.
+    """
 
-    then this function assumes:
+    from pathlib import Path
+    import math
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
 
-        prior observation ensemble:
-            pecos_rw_ies.0.obs.csv
+    # ------------------------------------------------------------------
+    # Convert pyEMU ensemble-like objects to pandas DataFrames.
+    #
+    # This allows direct use of:
+    #     pyemu.ParameterEnsemble.from_csv(...)
+    #
+    # or plain pandas DataFrames:
+    #     pd.read_csv(..., index_col=0)
+    # ------------------------------------------------------------------
+    pr_pe = _ensemble_to_dataframe(pr_pe, name="pr_pe")
+    pt_pe = _ensemble_to_dataframe(pt_pe, name="pt_pe")
 
-        posterior observation ensemble:
-            pecos_rw_ies.<last_iter>.obs.csv
+    has_prior = pr_pe is not None
+    has_posterior = pt_pe is not None
 
-    If last_iter is None, the function automatically finds the largest
-    available iteration number from files matching:
+    if not has_prior and not has_posterior:
+        raise ValueError("At least one of pr_pe or pt_pe must be provided.")
 
-        case.*.obs.csv
+    # ------------------------------------------------------------------
+    # Normalize ensemble column names to lowercase.
+    #
+    # PEST parameter names are commonly lowercase, but this makes the
+    # function more robust if a CSV has mixed-case columns.
+    # ------------------------------------------------------------------
+    if has_prior:
+        pr_pe = pr_pe.copy()
+        pr_pe.columns = [str(c).lower() for c in pr_pe.columns]
+
+    if has_posterior:
+        pt_pe = pt_pe.copy()
+        pt_pe.columns = [str(c).lower() for c in pt_pe.columns]
+
+    # ------------------------------------------------------------------
+    # Prepare pst.parameter_data safely.
+    #
+    # In pyEMU, parameter names are often stored as the dataframe index.
+    # Sometimes "parnme" also exists as a column. If "parnme" is both an
+    # index level and a column, pandas merge/filter operations can raise:
+    #
+    #     ValueError: 'parnme' is both an index level and a column label
+    #
+    # To avoid this, we force parameter names to be a normal column only,
+    # and we remove index ambiguity.
+    # ------------------------------------------------------------------
+    par_data_raw = pst.parameter_data.copy()
+
+    # Save original parameter names from the index before resetting it.
+    index_parnmes = par_data_raw.index.astype(str)
+
+    # Remove index name and reset to a simple integer index.
+    par_data_raw.index.name = None
+    par_data = par_data_raw.reset_index(drop=True)
+
+    # If parnme column exists, keep it. If not, create it from the original index.
+    if "parnme" not in par_data.columns:
+        par_data["parnme"] = index_parnmes
+    else:
+        par_data["parnme"] = par_data["parnme"].astype(str)
+
+    # Normalize parameter names.
+    par_data["parnme"] = par_data["parnme"].str.lower()
+
+    # ------------------------------------------------------------------
+    # Required columns for histogram binning.
+    # ------------------------------------------------------------------
+    required_cols = ["parnme", "parlbnd", "parubnd"]
+    missing_cols = [col for col in required_cols if col not in par_data.columns]
+
+    if missing_cols:
+        raise KeyError(
+            f"pst.parameter_data is missing required columns: {missing_cols}"
+        )
+
+    # ------------------------------------------------------------------
+    # Keep useful metadata columns if they exist.
+    # ------------------------------------------------------------------
+    meta_cols = ["parnme", "parlbnd", "parubnd"]
+
+    for optional_col in ["partrans", "parchglim", "pargp", "scale", "offset"]:
+        if optional_col in par_data.columns:
+            meta_cols.append(optional_col)
+
+    par_meta = par_data[meta_cols].copy()
+    par_meta["parnme"] = par_meta["parnme"].astype(str).str.lower()
+
+    # Make sure offset exists.
+    # For normal parameters this is 0. For your pctchg offset approach,
+    # this is needed to show actual relative change values.
+    if "offset" not in par_meta.columns:
+        par_meta["offset"] = 0.0
+
+    par_meta["offset"] = pd.to_numeric(par_meta["offset"], errors="coerce").fillna(0.0)
+
+    # ------------------------------------------------------------------
+    # Identify parameter columns available in the provided ensembles.
+    # ------------------------------------------------------------------
+    available_pars = set()
+
+    if has_prior:
+        available_pars.update(pr_pe.columns)
+
+    if has_posterior:
+        available_pars.update(pt_pe.columns)
+
+    # ------------------------------------------------------------------
+    # Build selected parameter dataframe.
+    #
+    # sel_pars can be:
+    #   1. None
+    #   2. list/tuple/Index of parameter names
+    #   3. DataFrame containing a "parnme" column
+    # ------------------------------------------------------------------
+    if sel_pars is None:
+        sel_pars_df = par_meta.loc[
+            par_meta["parnme"].isin(available_pars)
+        ].copy()
+
+    elif isinstance(sel_pars, pd.DataFrame):
+        sel_pars_df = sel_pars.copy()
+
+        # Remove index ambiguity if parnme is both index and column.
+        sel_pars_df.index.name = None
+        sel_pars_df = sel_pars_df.reset_index(drop=True)
+
+        if "parnme" not in sel_pars_df.columns:
+            raise KeyError("sel_pars DataFrame must contain a 'parnme' column.")
+
+        sel_pars_df["parnme"] = sel_pars_df["parnme"].astype(str).str.lower()
+
+        # Add missing metadata from pst.parameter_data.
+        missing_from_sel = [
+            col for col in ["parlbnd", "parubnd", "offset"]
+            if col not in sel_pars_df.columns
+        ]
+
+        if missing_from_sel:
+            sel_pars_df = sel_pars_df.merge(
+                par_meta,
+                on="parnme",
+                how="left",
+                suffixes=("", "_pst"),
+            )
+
+            for col in missing_from_sel:
+                pst_col = f"{col}_pst"
+                if pst_col in sel_pars_df.columns:
+                    sel_pars_df[col] = sel_pars_df[pst_col]
+
+            drop_cols = [
+                col for col in sel_pars_df.columns
+                if col.endswith("_pst")
+            ]
+            sel_pars_df.drop(columns=drop_cols, inplace=True)
+
+    else:
+        # Assume sel_pars is list-like.
+        sel_pars = [str(p).lower() for p in list(sel_pars)]
+
+        sel_pars_df = pd.DataFrame({"parnme": sel_pars})
+
+        sel_pars_df = sel_pars_df.merge(
+            par_meta,
+            on="parnme",
+            how="left",
+        )
+
+    # ------------------------------------------------------------------
+    # Keep only parameters that exist in at least one provided ensemble.
+    # ------------------------------------------------------------------
+    sel_pars_df["parnme"] = sel_pars_df["parnme"].astype(str).str.lower()
+
+    missing_from_ensemble = [
+        p for p in sel_pars_df["parnme"].tolist()
+        if p not in available_pars
+    ]
+
+    if missing_from_ensemble:
+        print(
+            "Skipped parameter(s) not found in parameter ensembles: "
+            + ", ".join(missing_from_ensemble)
+        )
+
+    sel_pars_df = sel_pars_df.loc[
+        sel_pars_df["parnme"].isin(available_pars)
+    ].copy()
+
+    if sel_pars_df.empty:
+        raise ValueError(
+            "No selected parameters were found in the provided ensemble(s)."
+        )
+
+    # ------------------------------------------------------------------
+    # Make sure parameter bounds exist.
+    # ------------------------------------------------------------------
+    if sel_pars_df["parlbnd"].isna().any() or sel_pars_df["parubnd"].isna().any():
+        missing_bound_pars = sel_pars_df.loc[
+            sel_pars_df["parlbnd"].isna() | sel_pars_df["parubnd"].isna(),
+            "parnme",
+        ].tolist()
+
+        raise ValueError(
+            "Some selected parameters are missing bounds. "
+            f"Example(s): {missing_bound_pars[:5]}"
+        )
+
+    sel_pars_df["parlbnd"] = pd.to_numeric(sel_pars_df["parlbnd"], errors="coerce")
+    sel_pars_df["parubnd"] = pd.to_numeric(sel_pars_df["parubnd"], errors="coerce")
+    sel_pars_df["offset"] = pd.to_numeric(
+        sel_pars_df.get("offset", 0.0),
+        errors="coerce",
+    ).fillna(0.0)
+
+    # ------------------------------------------------------------------
+    # Read best-candidate parameter object file once, if requested.
+    # Do not read this inside the loop.
+    # ------------------------------------------------------------------
+    bestcand_df = None
+
+    if parobj_file is not None:
+        parobj_path = Path(parobj_file)
+
+        if not parobj_path.is_absolute() and wd is not None:
+            parobj_path = Path(wd) / parobj_path
+
+        bestcand_df = pd.read_csv(parobj_path)
+
+        if "real_name" not in bestcand_df.columns:
+            raise KeyError("parobj_file must contain a 'real_name' column.")
+
+        if bestcand is None:
+            raise ValueError("parobj_file was provided, but bestcand is None.")
+
+        # Normalize parameter columns but preserve real_name.
+        bestcand_df.columns = [
+            "real_name" if str(c).lower() == "real_name" else str(c).lower()
+            for c in bestcand_df.columns
+        ]
+
+    # ------------------------------------------------------------------
+    # Create subplot layout.
+    # squeeze=False makes axes always a 2D array, even with one row.
+    # ------------------------------------------------------------------
+    npars = len(sel_pars_df)
+    nrows = math.ceil(npars / ncols)
+
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(width, height),
+        squeeze=False,
+    )
+
+    # ------------------------------------------------------------------
+    # Plot histograms.
+    # ------------------------------------------------------------------
+    first_legend_axis = True
+
+    for i, ax in enumerate(axes.flat):
+        if i >= npars:
+            ax.axis("off")
+            continue
+
+        parnme = sel_pars_df.iloc[i]["parnme"]
+        parlbnd = float(sel_pars_df.iloc[i]["parlbnd"])
+        parubnd = float(sel_pars_df.iloc[i]["parubnd"])
+        offset = float(sel_pars_df.iloc[i]["offset"])
+
+        # Histogram bins are based on actual displayed values:
+        #     PEST internal value + offset
+        #
+        # For your pctchg offset approach:
+        #     internal 1 to 201, offset -101
+        #     displayed -100 to +100
+        bin_edges = np.linspace(
+            parlbnd + offset,
+            parubnd + offset,
+            nbins + 1,
+        )
+
+        # --------------------------------------------------------------
+        # Prior histogram
+        # --------------------------------------------------------------
+        if has_prior and parnme in pr_pe.columns:
+            prior_vals = pr_pe[parnme].dropna().to_numpy(dtype=float) + offset
+
+            ax.hist(
+                prior_vals,
+                bins=bin_edges,
+                color="gray",
+                alpha=0.5,
+                density=False,
+                label="Prior" if first_legend_axis else None,
+            )
+
+        # --------------------------------------------------------------
+        # Posterior histogram
+        # --------------------------------------------------------------
+        if has_posterior and parnme in pt_pe.columns:
+            post_vals = pt_pe[parnme].dropna().to_numpy(dtype=float) + offset
+
+            ax.hist(
+                post_vals,
+                bins=bin_edges,
+                alpha=0.5,
+                density=False,
+                label="Posterior" if first_legend_axis else None,
+            )
+
+        # --------------------------------------------------------------
+        # Best-candidate vertical line
+        # --------------------------------------------------------------
+        if bestcand_df is not None:
+            if parnme in bestcand_df.columns:
+                match = bestcand_df.loc[
+                    bestcand_df["real_name"] == bestcand,
+                    parnme,
+                ]
+
+                if not match.empty:
+                    x_best = float(match.iloc[0]) + offset
+
+                    ax.axvline(
+                        x=x_best,
+                        color="red",
+                        linestyle="--",
+                        alpha=0.7,
+                        label="Best candidate" if first_legend_axis else None,
+                    )
+
+        # --------------------------------------------------------------
+        # Subplot formatting
+        # --------------------------------------------------------------
+        ax.set_title(
+            parnme,
+            fontsize=9,
+            loc="left",
+            x=0.05,
+            y=0.92,
+        )
+
+        ax.tick_params(axis="x", labelsize=8)
+        ax.tick_params(axis="y", labelsize=8)
+
+        if first_legend_axis:
+            handles, labels = ax.get_legend_handles_labels()
+            if labels:
+                ax.legend(fontsize=8)
+            first_legend_axis = False
+
+    # ------------------------------------------------------------------
+    # Shared figure labels.
+    # ------------------------------------------------------------------
+    fig.supxlabel("Parameter relative change (%)", fontsize=10)
+    fig.supylabel("Frequency", fontsize=10)
+
+    plt.tight_layout()
+
+    # ------------------------------------------------------------------
+    # Save figure only when requested.
+    # ------------------------------------------------------------------
+    if savefig:
+        if filename is None:
+            filename = "parameter_ensemble.png"
+
+        fig.savefig(filename, bbox_inches="tight", dpi=dpi)
+
+    # ------------------------------------------------------------------
+    # Show figure only when requested.
+    # ------------------------------------------------------------------
+    if show:
+        plt.show()
+
+    return fig, axes
+
+
+def _ensemble_to_dataframe(ensemble, name="ensemble", copy=True):
+    """
+    Convert a pandas DataFrame or pyEMU ensemble-like object to a DataFrame.
+
+    This helper allows plotting/analyzer functions to accept either:
+
+        - pandas.DataFrame
+        - pyemu.ObservationEnsemble
+        - pyemu.ParameterEnsemble
+
+    Parameters
+    ----------
+    ensemble : object
+        Ensemble object to convert.
+
+    name : str
+        Name used in error messages.
+
+    copy : bool
+        If True, return a copy of the DataFrame.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        Converted ensemble dataframe.
+
+        If ensemble is None, returns None.
+    """
+
+    if ensemble is None:
+        return None
+
+    if isinstance(ensemble, pd.DataFrame):
+        return ensemble.copy() if copy else ensemble
+
+    # pyEMU ensembles often expose the underlying DataFrame as _df.
+    if hasattr(ensemble, "_df"):
+        df = ensemble._df
+        return df.copy() if copy else df
+
+    # Some ensemble-like objects may support to_dataframe().
+    if hasattr(ensemble, "to_dataframe"):
+        df = ensemble.to_dataframe()
+        return df.copy() if copy else df
+
+    # Last-resort conversion for dataframe-like objects.
+    try:
+        df = pd.DataFrame(
+            ensemble,
+            index=ensemble.index,
+            columns=ensemble.columns,
+        )
+        return df.copy() if copy else df
+
+    except Exception as err:
+        raise TypeError(
+            f"{name} must be a pandas DataFrame, pyEMU ensemble-like object, or None. "
+            f"Could not convert object of type {type(ensemble)} to pandas DataFrame."
+        ) from err
+
+
+from pathlib import Path
+import matplotlib.pyplot as plt
+
+
+def plot_ies_tseries_ensemble_by_group(
+    pst=None,
+    *,
+    pr_oe=None,
+    pt_oe=None,
+    pt_fill=None,
+    obs_groups=None,
+    out_dir="ies_tseries",
+    prefix="ies_tseries",
+    width=10,
+    height=3,
+    dot=False,
+    bstcd=None,
+    ymin=None,
+    ymax=None,
+    auto_ylim_from_pt_fill=False,
+    ylim_pad_fraction=0.10,
+    include_obs_in_ylim=True,
+    aggregate_freq=None,
+    aggregate_func="mean",
+    dpi=300,
+    show=False,
+    close=True,
+    verbose=True,
+    # auto-load IES options
+    pst_file=None,
+    model_dir=None,
+    case=None,
+    last_iter=None,
+    auto_load_ies=False,
+    auto_build_pt_fill=True,
+):
+    """
+    Plot IES time-series ensemble figures for multiple observation groups.
+
+    This is a batch wrapper around plot_tseries_ensemble().
+
+    It supports the same IES auto-loading workflow as plot_tseries_ensemble(),
+    but loads the IES output ensembles only once before looping through
+    observation groups.
 
     Parameters
     ----------
     pst : pyemu.Pst, optional
-        Existing PEST control file object.
+        PEST control object.
 
-    pst_file : str or pathlib.Path, optional
-        Path to the PEST control file.
+    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Prior observation ensemble.
 
-        Required if pst is not provided.
+    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Posterior observation ensemble.
 
-    model_dir : str or pathlib.Path, optional
-        Folder containing PESTPP-IES output files.
+    pt_fill : pandas.DataFrame, optional
+        Posterior uncertainty band dataframe.
 
-        If None and pst_file is provided, model_dir is inferred from
-        pst_file.parent.
+    obs_groups : list-like, optional
+        Observation groups to plot. If None, uses pst.nnz_obs_groups.
 
-    case : str, optional
-        Case name used as the prefix for IES output files.
+    out_dir : str or pathlib.Path
+        Output directory for saved figures.
 
-        If None and pst_file is provided, case is inferred from pst_file.stem.
+    prefix : str
+        Prefix for output figure names.
 
-        Example:
-            pecos_rw_ies.pst -> case = "pecos_rw_ies"
+    width, height : float
+        Figure size in inches.
 
-    last_iter : int, optional
-        Posterior iteration number.
+    dot : bool
+        If True, plot ensemble realizations as scatter points.
 
-        If None, the function automatically finds the largest available
-        iteration from observation ensemble files.
+    bstcd : str, optional
+        Best-estimate realization name to plot from posterior ensemble.
 
-    build_pt_fill : bool, default True
-        If True, create a posterior min/max dataframe for uncertainty-band
-        plotting in plot_tseries_ensemble().
+    ymin, ymax : float, optional
+        Manual y-axis limits.
+
+    auto_ylim_from_pt_fill : bool
+        If True, automatically set y-axis limits from posterior fill range.
+
+    ylim_pad_fraction : float
+        Padding fraction for automatic y-axis limits.
+
+    include_obs_in_ylim : bool
+        If True, observed values are included in automatic y-axis limits.
+
+    aggregate_freq : str, optional
+        Temporal aggregation frequency, e.g., "MS" for monthly mean.
+
+    aggregate_func : str
+        Aggregation function, e.g., "mean", "sum", "median".
+
+    dpi : int
+        Saved figure resolution.
+
+    show : bool
+        If True, display figures.
+
+    close : bool
+        If True, close figures after saving. Recommended for batch plotting.
+
+    verbose : bool
+        If True, print progress messages.
+
+    pst_file, model_dir, case, last_iter : optional
+        Inputs for automatic IES loading.
+
+    auto_load_ies : bool
+        If True, load prior/posterior observation ensembles automatically.
+
+    auto_build_pt_fill : bool
+        If True and auto_load_ies=True, also build posterior fill dataframe.
 
     Returns
     -------
-    dict
-        Dictionary containing:
-            - pst
-            - model_dir
-            - case
-            - last_iter
-            - pr_oe
-            - pt_oe
-            - pt_fill
-            - prior_obs_file
-            - posterior_obs_file
+    saved_files : dict
+        Dictionary with observation group names as keys and saved file paths
+        as values.
     """
 
-    # ------------------------------------------------------------------
-    # Load pst if only pst_file is provided.
-    # pyEMU often needs str(path), not Path object.
-    # ------------------------------------------------------------------
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # --------------------------------------------------------------
+    # Load IES outputs once, not once per observation group.
+    # --------------------------------------------------------------
+    if auto_load_ies:
+        ies = load_ies_observation_ensembles(
+            pst=pst,
+            pst_file=pst_file,
+            model_dir=model_dir,
+            case=case,
+            last_iter=last_iter,
+            build_pt_fill=auto_build_pt_fill,
+        )
+
+        pst = ies["pst"]
+
+        if pr_oe is None:
+            pr_oe = ies["pr_oe"]
+
+        if pt_oe is None:
+            pt_oe = ies["pt_oe"]
+
+        if pt_fill is None and auto_build_pt_fill:
+            pt_fill = ies["pt_fill"]
+
     if pst is None:
-        if pst_file is None:
-            raise ValueError("Either pst or pst_file must be provided.")
-
-        pst_file = Path(pst_file)
-        pst = pyemu.Pst(str(pst_file))
-
-    else:
-        if pst_file is not None:
-            pst_file = Path(pst_file)
-
-    # ------------------------------------------------------------------
-    # Infer model_dir.
-    # ------------------------------------------------------------------
-    if model_dir is None:
-        if pst_file is None:
-            raise ValueError(
-                "model_dir could not be inferred because pst_file was not provided."
-            )
-
-        model_dir = pst_file.parent
-
-    model_dir = Path(model_dir)
-
-    # ------------------------------------------------------------------
-    # Infer case name.
-    # Example:
-    #     pecos_rw_ies.pst -> pecos_rw_ies
-    # ------------------------------------------------------------------
-    if case is None:
-        if pst_file is None:
-            raise ValueError(
-                "case could not be inferred because pst_file was not provided."
-            )
-
-        case = pst_file.stem
-
-    # ------------------------------------------------------------------
-    # Automatically find the last available IES observation iteration.
-    #
-    # Files should look like:
-    #     pecos_rw_ies.0.obs.csv
-    #     pecos_rw_ies.1.obs.csv
-    #     pecos_rw_ies.2.obs.csv
-    # ------------------------------------------------------------------
-    if last_iter is None:
-        obs_files = sorted(model_dir.glob(f"{case}.*.obs.csv"))
-
-        iteration_numbers = []
-
-        for f in obs_files:
-            # Remove case prefix and suffix.
-            # Example:
-            #   pecos_rw_ies.4.obs.csv -> 4
-            middle = f.name.replace(f"{case}.", "").replace(".obs.csv", "")
-
-            if middle.isdigit():
-                iteration_numbers.append(int(middle))
-
-        if not iteration_numbers:
-            raise FileNotFoundError(
-                f"No IES observation ensemble files found using pattern: "
-                f"{model_dir / f'{case}.*.obs.csv'}"
-            )
-
-        last_iter = max(iteration_numbers)
-
-    # ------------------------------------------------------------------
-    # Define prior and posterior observation ensemble files.
-    # ------------------------------------------------------------------
-    prior_obs_file = model_dir / f"{case}.0.obs.csv"
-    posterior_obs_file = model_dir / f"{case}.{last_iter}.obs.csv"
-
-    if not prior_obs_file.exists():
-        raise FileNotFoundError(f"Prior observation ensemble not found: {prior_obs_file}")
-
-    if not posterior_obs_file.exists():
-        raise FileNotFoundError(
-            f"Posterior observation ensemble not found: {posterior_obs_file}"
+        raise ValueError(
+            "pst is required. Provide pst directly or use auto_load_ies=True "
+            "with pst_file."
         )
 
-    # ------------------------------------------------------------------
-    # Load ensembles as DataFrames.
-    #
-    # We use DataFrames here because plot_tseries_ensemble() and
-    # plot_fdc_ensemble() only need realization rows and observation columns.
-    # ------------------------------------------------------------------
-    pr_oe = pd.read_csv(prior_obs_file, index_col=0)
-    pt_oe = pd.read_csv(posterior_obs_file, index_col=0)
+    if obs_groups is None:
+        obs_groups = pst.nnz_obs_groups
 
-    # ------------------------------------------------------------------
-    # Build posterior uncertainty range for time-series band plotting.
-    #
-    # pt_fill structure:
-    #     index  = datetime parsed from observation names
-    #     columns = pt_min, pt_max, obgnme
-    #
-    # This can be passed directly to plot_tseries_ensemble(..., pt_fill=pt_fill)
-    # ------------------------------------------------------------------
-    pt_fill = None
+    saved_files = {}
 
-    if build_pt_fill:
-        pt_fill = pd.DataFrame(
-            {
-                "pt_min": pt_oe.min(axis=0),
-                "pt_max": pt_oe.max(axis=0),
-            }
-        )
+    for obgnam in obs_groups:
+        try:
+            if aggregate_freq is None:
+                filename = out_dir / f"{prefix}_{obgnam}.png"
+            else:
+                filename = out_dir / f"{prefix}_{aggregate_freq}_{aggregate_func}_{obgnam}.png"
 
-        obs_data = pst.observation_data.copy()
-
-        missing_obs = [obs for obs in pt_fill.index if obs not in obs_data.index]
-
-        if missing_obs:
-            raise KeyError(
-                f"{len(missing_obs)} posterior observation names were not found "
-                f"in pst.observation_data. Example: {missing_obs[0]}"
+            fig, ax = plot_tseries_ensemble(
+                pst=pst,
+                obgnam=obgnam,
+                pr_oe=pr_oe,
+                pt_oe=pt_oe,
+                width=width,
+                height=height,
+                dot=dot,
+                bstcd=bstcd,
+                pt_fill=pt_fill,
+                ymin=ymin,
+                ymax=ymax,
+                auto_ylim_from_pt_fill=auto_ylim_from_pt_fill,
+                ylim_pad_fraction=ylim_pad_fraction,
+                include_obs_in_ylim=include_obs_in_ylim,
+                aggregate_freq=aggregate_freq,
+                aggregate_func=aggregate_func,
+                savefig=True,
+                filename=filename,
+                dpi=dpi,
+                show=show,
+                auto_load_ies=False,  # already loaded above
             )
 
-        pt_fill["obgnme"] = obs_data.loc[pt_fill.index, "obgnme"]
+            if close:
+                plt.close(fig)
 
-        # Assumes date is stored in the last 8 characters of observation name.
-        pt_fill["time"] = pd.to_datetime(
-            pt_fill.index.astype(str).str[-8:],
-            errors="coerce",
-        )
+            saved_files[obgnam] = filename
 
-        pt_fill = (
-            pt_fill
-            .dropna(subset=["time"])
-            .set_index("time")
-            .sort_index()
-        )
+            if verbose:
+                print(f"Saved time series: {obgnam}")
 
-    return {
-        "pst": pst,
-        "model_dir": model_dir,
-        "case": case,
-        "last_iter": last_iter,
-        "pr_oe": pr_oe,
-        "pt_oe": pt_oe,
-        "pt_fill": pt_fill,
-        "prior_obs_file": prior_obs_file,
-        "posterior_obs_file": posterior_obs_file,
-    }
+        except Exception as err:
+            if verbose:
+                print(f"Skipped time series {obgnam}: {err}")
+
+    return saved_files
+
+
+
+
+if __name__ == "__main__":
+    from pathlib import Path
+    import matplotlib.pyplot as plt
+
+    # --------------------------------------------------------------
+    # Change this path to your current IES master folder.
+    # --------------------------------------------------------------
+    
+    model_dir = Path(
+        r"C:\Users\seonggpa\Documents\projects\watersheds\Pecos\Analysis\calibration_v02\ihydrocal_workspace\pecos_rw_ies"
+    )
+
+    # '''
+    pst_file = model_dir / "pecos_rw_ies.pst"
+
+    # --------------------------------------------------------------
+    # Load IES observation ensembles.
+    # This should automatically find:
+    #   pecos_rw_ies.0.obs.csv
+    #   pecos_rw_ies.<last_iter>.obs.csv
+    # --------------------------------------------------------------
+    ies = load_ies_observation_ensembles(
+        pst_file=pst_file,
+        last_iter=None,
+        build_pt_fill=True,
+    )
+
+    pst = ies["pst"]
+    pr_oe = ies["pr_oe"]
+    pt_oe = ies["pt_oe"]
+    pt_fill = ies["pt_fill"]
+    # pt_oe = pd.read_csv(model_dir / "pecos_rw_ies.4.obs_demo_wide.csv", index_col=0)
+
+    print("Case:", ies["case"])
+    print("Last iteration:", ies["last_iter"])
+    print("Prior observation ensemble:", pr_oe.shape)
+    print("Posterior observation ensemble:", pt_oe.shape)
+    print("Posterior fill:", pt_fill.shape)
+    print("Observation groups:", pst.nnz_obs_groups)
+
+    # --------------------------------------------------------------
+    # Pick one observation group for testing.
+    # --------------------------------------------------------------
+    obgnam = pst.nnz_obs_groups[0]
+    print("Testing observation group:", obgnam)
+
+    # --------------------------------------------------------------
+    # 1. Time-series ensemble plot
+    # --------------------------------------------------------------
+    # fig, ax = plot_tseries_ensemble(
+    #     pst,
+    #     obgnam=obgnam,
+    #     pr_oe=pr_oe,
+    #     pt_oe=pt_oe,
+    #     # aggregate_freq="MS",
+    #     # aggregate_func="mean",
+    #     pt_fill=pt_fill,
+    #     width=11,
+    #     height=4,
+    #     dot=False,
+    #     auto_ylim_from_pt_fill=True,
+    #     ylim_pad_fraction=0.15,
+    #     include_obs_in_ylim=True,
+    #     show=True,
+    # )
+
+    # --------------------------------------------------------------
+    # 2. FDC ensemble plot
+    # --------------------------------------------------------------
+    # fig, ax, fdc_data = plot_fdc_ensemble(
+    #     pst=pst,
+    #     obgnam=obgnam,
+    #     pr_oe=pr_oe,
+    #     pt_oe=pt_oe,
+    #     width=6,
+    #     height=5,
+    #     logy=True,
+    #     posterior_band=True,
+    #     posterior_band_quantiles=(0.05, 0.95),
+    #     plot_prior_lines=True,
+    #     plot_posterior_lines=False,
+    #     aggregate_freq="MS",
+    #     aggregate_func="mean",
+    #     obs_dot=True,
+    #     obs_line=False,
+    #     obs_marker_size=18,
+    #     show=True,
+    # )
+
+    
+    # --------------------------------------------------------------
+    # Batch export all IES diagnostic figures
+    # --------------------------------------------------------------
+    fig_dir = model_dir / "figures" / "ies"
+    tseries_dir = fig_dir / "tseries"
+    fdc_dir = fig_dir / "fdc"
+
+    tseries_dir.mkdir(parents=True, exist_ok=True)
+    fdc_dir.mkdir(parents=True, exist_ok=True)
+
+    for obgnam in pst.nnz_obs_groups:
+        print(f"Processing: {obgnam}")
+
+        try:
+            fig, ax = plot_tseries_ensemble(
+                pst,
+                obgnam=obgnam,
+                pr_oe=pr_oe,
+                pt_oe=pt_oe,
+                # aggregate_freq="MS",
+                # aggregate_func="mean",
+                pt_fill=pt_fill,
+                width=10,
+                height=5,
+                dot=False,
+                auto_ylim_from_pt_fill=True,
+                ylim_pad_fraction=0.15,
+                include_obs_in_ylim=True,
+                savefig=True,
+                filename=tseries_dir / f"ies_tseries_{obgnam}.png",
+                dpi=300,
+                show=False,
+            )
+            plt.close(fig)
+
+        except Exception as err:
+            print(f"  Skipped time series: {err}")
+
+        try:
+            fig, ax, fdc_data = plot_fdc_ensemble(
+                pst=pst,
+                obgnam=obgnam,
+                pr_oe=pr_oe,
+                pt_oe=pt_oe,
+                width=6,
+                height=5,
+                logy=True,
+                posterior_band=True,
+                posterior_band_quantiles=(0.05, 0.95),
+                plot_prior_lines=True,
+                plot_posterior_lines=False,
+                obs_dot=True,
+                obs_line=False,
+                obs_marker_size=18,
+                savefig=True,
+                filename=fdc_dir / f"ies_fdc_{obgnam}.png",
+                dpi=300,
+                show=False,
+            )
+            plt.close(fig)
+
+        except Exception as err:
+            print(f"  Skipped FDC: {err}")
+
+    print("Batch IES figures completed.")
+    # '''
+
+    # model_dir = Path(
+    #     r"C:\Users\seonggpa\Documents\projects\watersheds\Pecos\Analysis\calibration_v02\ihydrocal_workspace\pecos_rw_ies"
+    # )
+
+    # pst_file = model_dir / "pecos_rw_ies.pst"
+    # pst = pyemu.Pst(str(pst_file))
+
+    # case = "pecos_rw_ies"
+    # last_iter = 4
+
+    # pr_pe = pd.read_csv(model_dir / f"{case}.0.par.csv", index_col=0)
+    # pt_pe = pd.read_csv(model_dir / f"{case}.{last_iter}.par.csv", index_col=0)
+
+    # print(pr_pe.shape)
+    # print(pt_pe.shape)
+    # print(pr_pe.columns)
+
+    # par = pst.parameter_data.copy()
+
+    # # Make a clean dataframe where parnme is only a column, not both index and column
+    # par = par.reset_index(drop=True)
+
+    # # If parnme still does not exist as a column, create it from the original index
+    # if "parnme" not in par.columns:
+    #     par["parnme"] = pst.parameter_data.index
+
+    # sel_pars = par.loc[
+    #     par["partrans"].str.lower() == "log",
+    #     ["parnme", "parlbnd", "parubnd", "offset"]
+    # ].copy()
+
+    # print(sel_pars)
+
+
+    # sel_pars = [
+    #     "chl", "cn2", "chk", "lat_len", "flo_min", "canmx", "chd", "awc",
+    #        "chs", 
+         
+    # ]
+
+
+    # sel_pars = [
+    #     "alpha", "awc", "canmx", "chd", "chk", "chl", "chn", "chs", "chw",
+    #     "cn2", "cn3_swf", "epco", "esco", "flo_min", "lat_len",
+    #     "latq_co", "perco", "petco", "revap_co", "surlag",
+    # ]
+
+    # fig, axes = plot_parameter_ensemble(
+    #     pst,
+    #     pr_pe=pr_pe,
+    #     pt_pe=pt_pe,
+    #     sel_pars=sel_pars,
+    #     width=9,
+    #     height=6,
+    #     ncols=3,
+    #     nbins=20,
+    #     show=True,
+    #     savefig=True,
+    # )
+
+
+    # # --------------------------------------------------------------
+    # # IES phi diagnostic figures
+    # # --------------------------------------------------------------
+    # phi_dir = model_dir / "figures" / "ies" / "phi"
+    # phi_dir.mkdir(parents=True, exist_ok=True)
+
+    # # --------------------------------------------------------------
+    # # 1. Phi evolution through IES iterations
+    # # --------------------------------------------------------------
+    # fig, ax, phi_df = plot_ies_phi_evolution(
+    #     model_dir / "pecos_rw_ies.phi.actual.csv",
+    #     title="PESTPP-IES Phi Evolution",
+    #     logy=True,
+    #     figsize=(5, 5),
+    #     save_path=phi_dir / "ies_phi_evolution_actual.png",
+    #     dpi=300,
+    #     show=True,
+    # )
+
+    # plt.close(fig)
+
+    # # --------------------------------------------------------------
+    # # 2. Prior vs posterior phi distribution
+    # # --------------------------------------------------------------
+    # fig, axes, phi_data = plot_ies_phi_distribution(
+    #     pst,
+    #     pr_oe_file=model_dir / "pecos_rw_ies.0.obs.csv",
+    #     pt_oe_file=model_dir / f"pecos_rw_ies.{4}.obs.csv",
+    #     bins=20,
+    #     log10=True,
+    #     separate_axes=False,
+    #     separate_layout="horizontal",
+    #     figsize=(5, 5),
+    #     title="Prior vs Posterior Phi Distribution",
+    #     save_path=phi_dir / "ies_phi_distribution_prior_posterior.png",
+    #     dpi=300,
+    #     show=True,
+    # )
+
+    # plt.close(fig)
