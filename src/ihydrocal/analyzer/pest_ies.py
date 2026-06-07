@@ -3043,6 +3043,225 @@ def plot_ies_tseries_ensemble_by_group(
     return saved_files
 
 
+from pathlib import Path
+import matplotlib.pyplot as plt
+
+
+def plot_ies_fdc_ensemble_by_group(
+    pst=None,
+    *,
+    pr_oe=None,
+    pt_oe=None,
+    obs_groups=None,
+    out_dir="ies_fdc",
+    prefix="ies_fdc",
+    width=6,
+    height=5,
+    logy=True,
+    posterior_band=True,
+    posterior_band_quantiles=(0.05, 0.95),
+    plot_prior_lines=True,
+    plot_posterior_lines=False,
+    obs_dot=False,
+    obs_marker_size=18,
+    obs_line=True,
+    aggregate_freq=None,
+    aggregate_func="mean",
+    ymin=None,
+    ymax=None,
+    title=None,
+    dpi=300,
+    show=False,
+    close=True,
+    verbose=True,
+    # auto-load IES options
+    pst_file=None,
+    model_dir=None,
+    case=None,
+    last_iter=None,
+    auto_load_ies=False,
+):
+    """
+    Plot IES flow-duration-curve ensemble figures for multiple observation groups.
+
+    This is a batch wrapper around plot_fdc_ensemble().
+
+    It supports the same auto_load_ies workflow as plot_fdc_ensemble(),
+    but loads the PESTPP-IES output ensembles only once before looping through
+    observation groups.
+
+    Parameters
+    ----------
+    pst : pyemu.Pst, optional
+        PEST control object.
+
+    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Prior observation ensemble.
+
+    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Posterior observation ensemble.
+
+    obs_groups : list-like, optional
+        Observation groups to plot. If None, uses pst.nnz_obs_groups.
+
+    out_dir : str or pathlib.Path
+        Output directory for saved figures.
+
+    prefix : str
+        Prefix for output figure names.
+
+    width, height : float
+        Figure size in inches.
+
+    logy : bool
+        If True, use log scale for the y-axis.
+
+    posterior_band : bool
+        If True, plot posterior FDC uncertainty band.
+
+    posterior_band_quantiles : tuple
+        Lower and upper quantiles for posterior FDC band.
+
+    plot_prior_lines : bool
+        If True, plot individual prior ensemble FDCs.
+
+    plot_posterior_lines : bool
+        If True, plot individual posterior ensemble FDCs.
+
+    obs_dot : bool
+        If True, plot observed FDC as points.
+
+    obs_marker_size : float
+        Marker size for observed FDC points.
+
+    obs_line : bool
+        If True, plot observed FDC as a line.
+
+    aggregate_freq : str, optional
+        Temporal aggregation frequency before FDC calculation.
+        Example: "MS" for monthly mean FDC.
+
+    aggregate_func : str
+        Aggregation function before FDC calculation.
+
+    ymin, ymax : float, optional
+        Manual y-axis limits.
+
+    title : str, optional
+        Optional title. If None, plot_fdc_ensemble() generates one.
+
+    dpi : int
+        Saved figure resolution.
+
+    show : bool
+        If True, display figures.
+
+    close : bool
+        If True, close figures after saving.
+
+    verbose : bool
+        If True, print progress messages.
+
+    pst_file, model_dir, case, last_iter : optional
+        Inputs for automatic IES loading.
+
+    auto_load_ies : bool
+        If True, load prior/posterior observation ensembles automatically.
+
+    Returns
+    -------
+    results : dict
+        Dictionary with saved file paths and FDC data by observation group.
+    """
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # --------------------------------------------------------------
+    # Load IES outputs once, not once per observation group.
+    # --------------------------------------------------------------
+    if auto_load_ies:
+        ies = load_ies_observation_ensembles(
+            pst=pst,
+            pst_file=pst_file,
+            model_dir=model_dir,
+            case=case,
+            last_iter=last_iter,
+            build_pt_fill=False,
+        )
+
+        pst = ies["pst"]
+
+        if pr_oe is None:
+            pr_oe = ies["pr_oe"]
+
+        if pt_oe is None:
+            pt_oe = ies["pt_oe"]
+
+    if pst is None:
+        raise ValueError(
+            "pst is required. Provide pst directly or use auto_load_ies=True "
+            "with pst_file."
+        )
+
+    if obs_groups is None:
+        obs_groups = pst.nnz_obs_groups
+
+    saved_files = {}
+    fdc_data_by_group = {}
+
+    for obgnam in obs_groups:
+        try:
+            if aggregate_freq is None:
+                filename = out_dir / f"{prefix}_{obgnam}.png"
+            else:
+                filename = out_dir / f"{prefix}_{aggregate_freq}_{aggregate_func}_{obgnam}.png"
+
+            fig, ax, fdc_data = plot_fdc_ensemble(
+                pst=pst,
+                obgnam=obgnam,
+                pr_oe=pr_oe,
+                pt_oe=pt_oe,
+                width=width,
+                height=height,
+                logy=logy,
+                posterior_band=posterior_band,
+                posterior_band_quantiles=posterior_band_quantiles,
+                plot_prior_lines=plot_prior_lines,
+                plot_posterior_lines=plot_posterior_lines,
+                obs_dot=obs_dot,
+                obs_marker_size=obs_marker_size,
+                obs_line=obs_line,
+                aggregate_freq=aggregate_freq,
+                aggregate_func=aggregate_func,
+                ymin=ymin,
+                ymax=ymax,
+                title=title,
+                savefig=True,
+                filename=filename,
+                dpi=dpi,
+                show=show,
+                auto_load_ies=False,  # already loaded above
+            )
+
+            if close:
+                plt.close(fig)
+
+            saved_files[obgnam] = filename
+            fdc_data_by_group[obgnam] = fdc_data
+
+            if verbose:
+                print(f"Saved FDC: {obgnam}")
+
+        except Exception as err:
+            if verbose:
+                print(f"Skipped FDC {obgnam}: {err}")
+
+    return {
+        "files": saved_files,
+        "fdc_data": fdc_data_by_group,
+    }
+
 
 
 if __name__ == "__main__":
