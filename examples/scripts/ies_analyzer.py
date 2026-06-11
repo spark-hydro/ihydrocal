@@ -7,7 +7,9 @@ from ihydrocal.analyzer.pest_ies import plot_ies_fdc_ensemble_by_group, plot_ies
 # --------------------------------------------------------------
 
 model_dir = Path(
-    r"C:\Users\seonggpa\Documents\projects\watersheds\Pecos\Analysis\calibration_v03\ihydrocal_workspace\pecos_rw_ies"
+    # r"C:\Users\seonggpa\Documents\projects\watersheds\Pecos\Analysis\calibration_v03\ihydrocal_workspace\pecos_rw_ies"
+    r"/home/spark/Documents/projects/watersheds/pecos/calibration_v03/ihydrocal_workspace/pecos_rw_ies" # linux
+
 )
 
 # '''
