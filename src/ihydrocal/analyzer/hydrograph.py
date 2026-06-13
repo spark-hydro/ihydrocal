@@ -382,3 +382,358 @@ def plot_hydrograph_with_precip(
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
 
     return fig, (ax_p, ax_q), metrics
+
+
+def plot_simulated_discharge_comparison(
+    base_df,
+    scenario_df,
+    base_sim_col,
+    scenario_sim_col,
+    date_col="date",
+    base_label="Base model",
+    scenario_label="Point-source scenario",
+    title=None,
+    ylabel="Discharge (cms)",
+    figsize=(10, 4),
+    plot_difference=False,
+    difference_label="Scenario - Base",
+    save_path=None,
+):
+    """
+    Compare simulated outlet discharge between a base model and a scenario model.
+
+    This function is useful for comparing SWAT+ baseline simulation with a
+    point-source or recall-object application scenario.
+
+    Parameters
+    ----------
+    base_df : pandas.DataFrame
+        DataFrame containing base model simulated discharge.
+
+    scenario_df : pandas.DataFrame
+        DataFrame containing scenario simulated discharge.
+
+    base_sim_col : str
+        Column name for base model simulated discharge.
+
+    scenario_sim_col : str
+        Column name for scenario simulated discharge.
+
+    date_col : str, default "date"
+        Date column name used in both dataframes.
+
+    base_label : str, default "Base model"
+        Legend label for the base model.
+
+    scenario_label : str, default "Point-source scenario"
+        Legend label for the scenario model.
+
+    title : str, optional
+        Plot title.
+
+    ylabel : str, default "Discharge (cms)"
+        Y-axis label.
+
+    figsize : tuple, default (10, 4)
+        Figure size.
+
+    plot_difference : bool, default False
+        If True, add a second panel showing scenario minus base discharge.
+
+    difference_label : str, default "Scenario - Base"
+        Label for the difference plot.
+
+    save_path : str or pathlib.Path, optional
+        If provided, save the figure.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object.
+
+    axes : matplotlib.axes.Axes or tuple
+        Axis object if plot_difference=False.
+        Tuple of axes if plot_difference=True.
+
+    comparison_df : pandas.DataFrame
+        Merged dataframe containing base, scenario, and difference columns.
+    """
+
+    # ------------------------------------------------------------
+    # Prepare base dataframe.
+    # ------------------------------------------------------------
+    base = base_df[[date_col, base_sim_col]].copy()
+    base[date_col] = pd.to_datetime(base[date_col])
+    base = base.rename(columns={base_sim_col: "base_sim"})
+
+    # ------------------------------------------------------------
+    # Prepare scenario dataframe.
+    # ------------------------------------------------------------
+    scenario = scenario_df[[date_col, scenario_sim_col]].copy()
+    scenario[date_col] = pd.to_datetime(scenario[date_col])
+    scenario = scenario.rename(columns={scenario_sim_col: "scenario_sim"})
+
+    # ------------------------------------------------------------
+    # Merge by date.
+    # inner join keeps only dates available in both simulations.
+    # ------------------------------------------------------------
+    comparison_df = pd.merge(
+        base,
+        scenario,
+        on=date_col,
+        how="inner",
+    )
+
+    comparison_df["difference"] = (
+        comparison_df["scenario_sim"] - comparison_df["base_sim"]
+    )
+
+    # ------------------------------------------------------------
+    # Create figure.
+    # ------------------------------------------------------------
+    if plot_difference:
+        fig, (ax_q, ax_d) = plt.subplots(
+            2,
+            1,
+            figsize=(figsize[0], figsize[1] + 2),
+            sharex=True,
+            gridspec_kw={"height_ratios": [3, 1]},
+        )
+    else:
+        fig, ax_q = plt.subplots(figsize=figsize)
+
+    # ------------------------------------------------------------
+    # Main hydrograph panel.
+    # ------------------------------------------------------------
+    ax_q.plot(
+        comparison_df[date_col],
+        comparison_df["base_sim"],
+        label=base_label,
+        linewidth=1.2,
+    )
+
+    ax_q.plot(
+        comparison_df[date_col],
+        comparison_df["scenario_sim"],
+        label=scenario_label,
+        linewidth=1.2,
+    )
+
+    ax_q.set_ylabel(ylabel)
+
+    if title is None:
+        title = "Simulated outlet discharge comparison"
+
+    ax_q.set_title(title)
+    ax_q.grid(True, alpha=0.3)
+    ax_q.legend()
+
+    # ------------------------------------------------------------
+    # Optional difference panel.
+    # ------------------------------------------------------------
+    if plot_difference:
+        ax_d.axhline(
+            0.0,
+            linewidth=0.8,
+            color="black",
+        )
+
+        ax_d.plot(
+            comparison_df[date_col],
+            comparison_df["difference"],
+            label=difference_label,
+            linewidth=1.0,
+        )
+
+        ax_d.set_ylabel("Difference")
+        ax_d.set_xlabel("Date")
+        ax_d.grid(True, alpha=0.3)
+        ax_d.legend()
+
+        axes = (ax_q, ax_d)
+
+    else:
+        ax_q.set_xlabel("Date")
+        axes = ax_q
+
+    fig.tight_layout()
+
+    # ------------------------------------------------------------
+    # Save figure.
+    # ------------------------------------------------------------
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    return fig, axes, comparison_df
+
+
+def plot_simulated_fdc_comparison(
+    base_df,
+    scenario_df,
+    base_sim_col,
+    scenario_sim_col,
+    date_col="date",
+    base_label="Base model",
+    scenario_label="Point-source scenario",
+    title=None,
+    ylabel="Discharge (cms)",
+    figsize=(6, 5),
+    logy=True,
+    save_path=None,
+):
+    """
+    Compare simulated outlet flow-duration curves between a base model
+    and a scenario model.
+
+    Parameters
+    ----------
+    base_df : pandas.DataFrame
+        DataFrame containing base model simulated discharge.
+
+    scenario_df : pandas.DataFrame
+        DataFrame containing scenario simulated discharge.
+
+    base_sim_col : str
+        Column name for base model simulated discharge.
+
+    scenario_sim_col : str
+        Column name for scenario simulated discharge.
+
+    date_col : str, default "date"
+        Date column name used in both dataframes.
+
+    base_label : str, default "Base model"
+        Legend label for the base model.
+
+    scenario_label : str, default "Point-source scenario"
+        Legend label for the scenario model.
+
+    title : str, optional
+        Plot title.
+
+    ylabel : str, default "Discharge (cms)"
+        Y-axis label.
+
+    figsize : tuple, default (6, 5)
+        Figure size.
+
+    logy : bool, default True
+        If True, use log scale for discharge.
+
+    save_path : str or pathlib.Path, optional
+        If provided, save the figure.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object.
+
+    ax : matplotlib.axes.Axes
+        Axis object.
+
+    fdc_df : pandas.DataFrame
+        DataFrame containing exceedance probability and sorted flows.
+    """
+
+    # ------------------------------------------------------------
+    # Prepare and merge data.
+    # ------------------------------------------------------------
+    base = base_df[[date_col, base_sim_col]].copy()
+    base[date_col] = pd.to_datetime(base[date_col])
+    base = base.rename(columns={base_sim_col: "base_sim"})
+
+    scenario = scenario_df[[date_col, scenario_sim_col]].copy()
+    scenario[date_col] = pd.to_datetime(scenario[date_col])
+    scenario = scenario.rename(columns={scenario_sim_col: "scenario_sim"})
+
+    df = pd.merge(
+        base,
+        scenario,
+        on=date_col,
+        how="inner",
+    )
+
+    # ------------------------------------------------------------
+    # Helper function to calculate FDC.
+    # ------------------------------------------------------------
+    def _calculate_fdc(values):
+        values = pd.Series(values)
+        values = pd.to_numeric(values, errors="coerce").dropna()
+        values = values.loc[values > -999]
+
+        if logy:
+            values = values.loc[values > 0]
+
+        sorted_values = values.sort_values(ascending=False).to_numpy(dtype=float)
+        n = len(sorted_values)
+
+        exceedance = (
+            pd.Series(range(1, n + 1), dtype=float) / (n + 1) * 100.0
+        ).to_numpy()
+
+        return exceedance, sorted_values
+
+    x_base, y_base = _calculate_fdc(df["base_sim"])
+    x_scen, y_scen = _calculate_fdc(df["scenario_sim"])
+
+    # ------------------------------------------------------------
+    # Create FDC dataframe.
+    # Lengths should be same because merged dates are same,
+    # but this keeps it safe.
+    # ------------------------------------------------------------
+    n = min(len(x_base), len(x_scen))
+
+    fdc_df = pd.DataFrame(
+        {
+            "exceedance_probability": x_base[:n],
+            "base_sim": y_base[:n],
+            "scenario_sim": y_scen[:n],
+            "difference": y_scen[:n] - y_base[:n],
+        }
+    )
+
+    # ------------------------------------------------------------
+    # Plot.
+    # ------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=figsize)
+
+    ax.plot(
+        fdc_df["exceedance_probability"],
+        fdc_df["base_sim"],
+        label=base_label,
+        linewidth=1.5,
+    )
+
+    ax.plot(
+        fdc_df["exceedance_probability"],
+        fdc_df["scenario_sim"],
+        label=scenario_label,
+        linewidth=1.5,
+    )
+
+    ax.set_xlabel("Exceedance probability (%)")
+    ax.set_ylabel(ylabel)
+
+    if title is None:
+        title = "Simulated outlet flow-duration curve comparison"
+
+    ax.set_title(title)
+
+    ax.set_xlim(0, 100)
+
+    if logy:
+        ax.set_yscale("log")
+
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend()
+
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+
+    return fig, ax, fdc_df
