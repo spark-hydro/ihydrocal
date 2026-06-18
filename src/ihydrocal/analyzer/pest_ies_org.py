@@ -1,102 +1,24 @@
-"""
-Cleaned IES analyzer script.
-
-Key cleanup:
-- Centralized imports.
-- Set Matplotlib backend to Agg for script-based figure/GIF saving.
-- Defined _ensemble_to_dataframe() before all functions that use it.
-- Removed older duplicate/confusing animation functions:
-    animate_tseries_ensemble()
-    animate_tseries_ensemble_by_realization_org()
-- Kept the latest realization-based time-series, FDC, and parameter animations.
-- Added realizations_per_frame to animation functions so each frame can add
-  multiple realizations, e.g., 5 realizations per frame for faster GIF/MP4 output.
-"""
-
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 import os
-os.environ.setdefault("MPLBACKEND", "Agg")
+
+import numpy as np
+import math
+import matplotlib.dates as mdates
+
+from matplotlib.gridspec import GridSpec
+from matplotlib.patches import Rectangle
+import matplotlib.gridspec as gridspec
+import pyemu
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 
 from pathlib import Path
 from typing import Optional, Union
-import math
-
-import numpy as np
-import pandas as pd
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
-from matplotlib.gridspec import GridSpec
-from matplotlib.patches import Rectangle, Patch
-from matplotlib.lines import Line2D
-import matplotlib.gridspec as gridspec
-
-import pyemu
 
 
-def _ensemble_to_dataframe(ensemble, name="ensemble", copy=True):
-    """
-    Convert a pandas DataFrame or pyEMU ensemble-like object to a DataFrame.
-
-    This helper allows plotting/analyzer functions to accept either:
-
-        - pandas.DataFrame
-        - pyemu.ObservationEnsemble
-        - pyemu.ParameterEnsemble
-
-    Parameters
-    ----------
-    ensemble : object
-        Ensemble object to convert.
-
-    name : str
-        Name used in error messages.
-
-    copy : bool
-        If True, return a copy of the DataFrame.
-
-    Returns
-    -------
-    pandas.DataFrame or None
-        Converted ensemble dataframe.
-
-        If ensemble is None, returns None.
-    """
-
-    if ensemble is None:
-        return None
-
-    if isinstance(ensemble, pd.DataFrame):
-        return ensemble.copy() if copy else ensemble
-
-    # pyEMU ensembles often expose the underlying DataFrame as _df.
-    if hasattr(ensemble, "_df"):
-        df = ensemble._df
-        return df.copy() if copy else df
-
-    # Some ensemble-like objects may support to_dataframe().
-    if hasattr(ensemble, "to_dataframe"):
-        df = ensemble.to_dataframe()
-        return df.copy() if copy else df
-
-    # Last-resort conversion for dataframe-like objects.
-    try:
-        df = pd.DataFrame(
-            ensemble,
-            index=ensemble.index,
-            columns=ensemble.columns,
-        )
-        return df.copy() if copy else df
-
-    except Exception as err:
-        raise TypeError(
-            f"{name} must be a pandas DataFrame, pyEMU ensemble-like object, or None. "
-            f"Could not convert object of type {type(ensemble)} to pandas DataFrame."
-        ) from err
-
-
+# Loading helpers
 def load_ies_observation_ensembles(
     pst=None,
     pst_file: Optional[Union[str, Path]] = None,
@@ -328,7 +250,6 @@ def load_ies_observation_ensembles(
         "posterior_obs_file": posterior_obs_file,
     }
 
-
 def load_ies_parameter_ensembles(
     pst=None,
     pst_file=None,
@@ -474,7 +395,7 @@ def load_ies_parameter_ensembles(
         "posterior_par_file": posterior_par_file,
     }
 
-
+# Time/aggregation helpers
 def parse_observation_times(obs_names, date_format=None):
     """
     Parse datetime values from observation names.
@@ -492,7 +413,6 @@ def parse_observation_times(obs_names, date_format=None):
         return pd.to_datetime(obs_names.str[-8:], errors="coerce")
 
     return pd.to_datetime(obs_names, format=date_format, errors="coerce")
-
 
 def aggregate_series(values, times, freq="MS", func="mean", missing_threshold=-999):
     """
@@ -533,7 +453,6 @@ def aggregate_series(values, times, freq="MS", func="mean", missing_threshold=-9
     raise ValueError(
         "func must be one of: 'mean', 'sum', 'median', 'max', or 'min'."
     )
-
 
 def aggregate_observation_ensemble(
     ensemble_df,
@@ -592,7 +511,6 @@ def aggregate_observation_ensemble(
         index=reference_index,
     ).T
 
-
 def build_posterior_fill(pt_oe, pst=None, obgnam=None, obs_names=None, times=None):
     """
     Build posterior min/max uncertainty band for time-series plotting.
@@ -639,6 +557,7 @@ def build_posterior_fill(pt_oe, pst=None, obgnam=None, obs_names=None, times=Non
     )
 
 
+# FDC helpers
 def calculate_fdc(values, logy=False, missing_threshold=-999):
     """
     Calculate a flow duration curve.
@@ -662,7 +581,6 @@ def calculate_fdc(values, logy=False, missing_threshold=-999):
     exceedance = np.arange(1, n + 1) / (n + 1) * 100.0
 
     return exceedance, sorted_values
-
 
 def calculate_fdc_band(
     ensemble_df,
@@ -715,6 +633,8 @@ def calculate_fdc_band(
     }
 
 
+
+# Plotting functions
 def plot_ies_phi_evolution(
     phi_file: Union[str, Path],
     phi_col: str = "mean",
@@ -832,7 +752,6 @@ def plot_ies_phi_evolution(
         plt.show()
 
     return fig, ax, phi_df
-
 
 def plot_ies_phi_distribution(
     pst,
@@ -1286,7 +1205,6 @@ def plot_ies_phi_distribution(
         plt.show()
 
     return fig, ax_return, phi_data
-
 
 def plot_tseries_ensemble(
     pst,
@@ -2022,7 +1940,6 @@ def plot_tseries_ensemble(
 
     return fig, ax
 
-
 def plot_fdc_ensemble(
     pst=None,
     obgnam=None,
@@ -2504,7 +2421,6 @@ def plot_fdc_ensemble(
         plt.show()
 
     return fig, ax, fdc_data
-
 
 def plot_parameter_ensemble(
     pst,
@@ -3004,6 +2920,71 @@ def plot_parameter_ensemble(
     return fig, axes
 
 
+def _ensemble_to_dataframe(ensemble, name="ensemble", copy=True):
+    """
+    Convert a pandas DataFrame or pyEMU ensemble-like object to a DataFrame.
+
+    This helper allows plotting/analyzer functions to accept either:
+
+        - pandas.DataFrame
+        - pyemu.ObservationEnsemble
+        - pyemu.ParameterEnsemble
+
+    Parameters
+    ----------
+    ensemble : object
+        Ensemble object to convert.
+
+    name : str
+        Name used in error messages.
+
+    copy : bool
+        If True, return a copy of the DataFrame.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        Converted ensemble dataframe.
+
+        If ensemble is None, returns None.
+    """
+
+    if ensemble is None:
+        return None
+
+    if isinstance(ensemble, pd.DataFrame):
+        return ensemble.copy() if copy else ensemble
+
+    # pyEMU ensembles often expose the underlying DataFrame as _df.
+    if hasattr(ensemble, "_df"):
+        df = ensemble._df
+        return df.copy() if copy else df
+
+    # Some ensemble-like objects may support to_dataframe().
+    if hasattr(ensemble, "to_dataframe"):
+        df = ensemble.to_dataframe()
+        return df.copy() if copy else df
+
+    # Last-resort conversion for dataframe-like objects.
+    try:
+        df = pd.DataFrame(
+            ensemble,
+            index=ensemble.index,
+            columns=ensemble.columns,
+        )
+        return df.copy() if copy else df
+
+    except Exception as err:
+        raise TypeError(
+            f"{name} must be a pandas DataFrame, pyEMU ensemble-like object, or None. "
+            f"Could not convert object of type {type(ensemble)} to pandas DataFrame."
+        ) from err
+
+
+from pathlib import Path
+import matplotlib.pyplot as plt
+
+
 def plot_ies_tseries_ensemble_by_group(
     pst=None,
     *,
@@ -3207,139 +3188,63 @@ def plot_ies_tseries_ensemble_by_group(
     return saved_files
 
 
-def plot_ies_fdc_ensemble_by_group(
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
+
+
+def animate_tseries_ensemble(
     pst=None,
+    obgnam=None,
     *,
     pr_oe=None,
     pt_oe=None,
-    obs_groups=None,
-    out_dir="ies_fdc",
-    prefix="ies_fdc",
-    width=6,
-    height=5,
-    logy=True,
-    posterior_band=True,
-    posterior_band_quantiles=(0.05, 0.95),
-    plot_prior_lines=True,
-    plot_posterior_lines=False,
-    obs_dot=False,
-    obs_marker_size=18,
-    obs_line=True,
-    aggregate_freq=None,
-    aggregate_func="mean",
+    width=10,
+    height=3,
+    dot=False,
+    bstcd=None,
+    pt_fill=None,
     ymin=None,
     ymax=None,
-    title=None,
-    dpi=300,
-    show=False,
-    close=True,
-    verbose=True,
-    # auto-load IES options
+    auto_ylim_from_pt_fill=False,
+    ylim_pad_fraction=0.10,
+    include_obs_in_ylim=True,
+    aggregate_freq=None,
+    aggregate_func="mean",
     pst_file=None,
     model_dir=None,
     case=None,
     last_iter=None,
     auto_load_ies=False,
+    auto_build_pt_fill=True,
+    save_path=None,
+    writer="pillow",
+    fps=8,
+    interval=120,
+    repeat_delay=1000,
+    dpi=150,
+    show=False,
+    close=False,
 ):
     """
-    Plot IES flow-duration-curve ensemble figures for multiple observation groups.
+    Animate observed time-series data with optional prior and posterior
+    PESTPP-IES output ensembles.
 
-    This is a batch wrapper around plot_fdc_ensemble().
-
-    It supports the same auto_load_ies workflow as plot_fdc_ensemble(),
-    but loads the PESTPP-IES output ensembles only once before looping through
-    observation groups.
-
-    Parameters
-    ----------
-    pst : pyemu.Pst, optional
-        PEST control object.
-
-    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
-        Prior observation ensemble.
-
-    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
-        Posterior observation ensemble.
-
-    obs_groups : list-like, optional
-        Observation groups to plot. If None, uses pst.nnz_obs_groups.
-
-    out_dir : str or pathlib.Path
-        Output directory for saved figures.
-
-    prefix : str
-        Prefix for output figure names.
-
-    width, height : float
-        Figure size in inches.
-
-    logy : bool
-        If True, use log scale for the y-axis.
-
-    posterior_band : bool
-        If True, plot posterior FDC uncertainty band.
-
-    posterior_band_quantiles : tuple
-        Lower and upper quantiles for posterior FDC band.
-
-    plot_prior_lines : bool
-        If True, plot individual prior ensemble FDCs.
-
-    plot_posterior_lines : bool
-        If True, plot individual posterior ensemble FDCs.
-
-    obs_dot : bool
-        If True, plot observed FDC as points.
-
-    obs_marker_size : float
-        Marker size for observed FDC points.
-
-    obs_line : bool
-        If True, plot observed FDC as a line.
-
-    aggregate_freq : str, optional
-        Temporal aggregation frequency before FDC calculation.
-        Example: "MS" for monthly mean FDC.
-
-    aggregate_func : str
-        Aggregation function before FDC calculation.
-
-    ymin, ymax : float, optional
-        Manual y-axis limits.
-
-    title : str, optional
-        Optional title. If None, plot_fdc_ensemble() generates one.
-
-    dpi : int
-        Saved figure resolution.
-
-    show : bool
-        If True, display figures.
-
-    close : bool
-        If True, close figures after saving.
-
-    verbose : bool
-        If True, print progress messages.
-
-    pst_file, model_dir, case, last_iter : optional
-        Inputs for automatic IES loading.
-
-    auto_load_ies : bool
-        If True, load prior/posterior observation ensembles automatically.
-
-    Returns
-    -------
-    results : dict
-        Dictionary with saved file paths and FDC data by observation group.
+    This follows the same data-preparation logic as plot_tseries_ensemble().
+    
     """
 
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if obgnam is None:
+        raise ValueError("obgnam must be provided.")
 
-    # --------------------------------------------------------------
-    # Load IES outputs once, not once per observation group.
-    # --------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Optional automatic loading for PESTPP-IES outputs.
+    # ------------------------------------------------------------------
     if auto_load_ies:
         ies = load_ies_observation_ensembles(
             pst=pst,
@@ -3347,7 +3252,7 @@ def plot_ies_fdc_ensemble_by_group(
             model_dir=model_dir,
             case=case,
             last_iter=last_iter,
-            build_pt_fill=False,
+            build_pt_fill=auto_build_pt_fill,
         )
 
         pst = ies["pst"]
@@ -3358,90 +3263,1483 @@ def plot_ies_fdc_ensemble_by_group(
         if pt_oe is None:
             pt_oe = ies["pt_oe"]
 
+        if pt_fill is None and auto_build_pt_fill:
+            pt_fill = ies["pt_fill"]
+
     if pst is None:
         raise ValueError(
             "pst is required. Provide pst directly or use auto_load_ies=True "
             "with pst_file."
         )
 
-    if obs_groups is None:
-        obs_groups = pst.nnz_obs_groups
+    # ------------------------------------------------------------------
+    # Convert pyEMU ensemble-like objects to pandas DataFrames.
+    # ------------------------------------------------------------------
+    pr_oe = _ensemble_to_dataframe(pr_oe, name="pr_oe")
+    pt_oe = _ensemble_to_dataframe(pt_oe, name="pt_oe")
 
-    saved_files = {}
-    fdc_data_by_group = {}
+    has_prior = pr_oe is not None
+    has_posterior = pt_oe is not None
 
-    for obgnam in obs_groups:
-        try:
-            if aggregate_freq is None:
-                filename = out_dir / f"{prefix}_{obgnam}.png"
-            else:
-                filename = out_dir / f"{prefix}_{aggregate_freq}_{aggregate_func}_{obgnam}.png"
+    # ------------------------------------------------------------------
+    # Get observation data from the PEST control file.
+    # ------------------------------------------------------------------
+    obs = pst.observation_data.copy()
+    obs = obs.loc[obs.obgnme.isin(pst.nnz_obs_groups)].copy()
 
-            fig, ax, fdc_data = plot_fdc_ensemble(
-                pst=pst,
-                obgnam=obgnam,
-                pr_oe=pr_oe,
-                pt_oe=pt_oe,
-                width=width,
-                height=height,
-                logy=logy,
-                posterior_band=posterior_band,
-                posterior_band_quantiles=posterior_band_quantiles,
-                plot_prior_lines=plot_prior_lines,
-                plot_posterior_lines=plot_posterior_lines,
-                obs_dot=obs_dot,
-                obs_marker_size=obs_marker_size,
-                obs_line=obs_line,
-                aggregate_freq=aggregate_freq,
-                aggregate_func=aggregate_func,
-                ymin=ymin,
-                ymax=ymax,
-                title=title,
-                savefig=True,
-                filename=filename,
-                dpi=dpi,
-                show=show,
-                auto_load_ies=False,  # already loaded above
+    # Assumes the last 8 characters of obsnme are dates.
+    obs["time"] = pd.to_datetime(obs.obsnme.str[-8:], errors="coerce")
+
+    # Select requested observation group.
+    oobs = obs.loc[obs.obgnme == obgnam].copy()
+
+    if oobs.empty:
+        raise ValueError(f"No observations found for observation group: {obgnam}")
+
+    oobs = oobs.dropna(subset=["time"]).copy()
+
+    if oobs.empty:
+        raise ValueError(
+            f"Observations were found for {obgnam}, but no valid dates could be parsed "
+            "from the last 8 characters of obsnme."
+        )
+
+    oobs.sort_values("time", inplace=True)
+
+    tvals = oobs.time.to_numpy()
+    onames = oobs.obsnme.to_numpy()
+
+    # ------------------------------------------------------------------
+    # Prepare prior ensemble.
+    # ------------------------------------------------------------------
+    if has_prior:
+        pr_oe = pr_oe.where(pr_oe > -999)
+
+        missing_prior_cols = [name for name in onames if name not in pr_oe.columns]
+
+        if missing_prior_cols:
+            raise KeyError(
+                f"{len(missing_prior_cols)} observation names are missing from pr_oe. "
+                f"Example missing name: {missing_prior_cols[0]}"
             )
 
-            if close:
-                plt.close(fig)
+    # ------------------------------------------------------------------
+    # Prepare posterior ensemble.
+    # ------------------------------------------------------------------
+    if has_posterior:
+        pt_oe = pt_oe.where(pt_oe > -999)
 
-            saved_files[obgnam] = filename
-            fdc_data_by_group[obgnam] = fdc_data
+        missing_post_cols = [name for name in onames if name not in pt_oe.columns]
 
-            if verbose:
-                print(f"Saved FDC: {obgnam}")
+        if missing_post_cols:
+            raise KeyError(
+                f"{len(missing_post_cols)} observation names are missing from pt_oe. "
+                f"Example missing name: {missing_post_cols[0]}"
+            )
 
-        except Exception as err:
-            if verbose:
-                print(f"Skipped FDC {obgnam}: {err}")
+    # ------------------------------------------------------------------
+    # Prepare observed values with non-zero weight.
+    # ------------------------------------------------------------------
+    oobs_nonzero = oobs.loc[oobs.weight > 0].copy()
 
-    return {
-        "files": saved_files,
-        "fdc_data": fdc_data_by_group,
+    # ------------------------------------------------------------------
+    # Optional temporal aggregation.
+    # This matches plot_tseries_ensemble().
+    # ------------------------------------------------------------------
+    if aggregate_freq is not None:
+
+        obs_agg = aggregate_series(
+            oobs_nonzero["obsval"].to_numpy(),
+            oobs_nonzero["time"].to_numpy(),
+            freq=aggregate_freq,
+            func=aggregate_func,
+        )
+
+        if obs_agg.empty:
+            raise ValueError(
+                f"No valid aggregated observed values for observation group: {obgnam}"
+            )
+
+        tvals = obs_agg.index.to_numpy()
+
+        oobs_nonzero = pd.DataFrame(
+            {
+                "time": obs_agg.index,
+                "obsval": obs_agg.values,
+                "weight": 1.0,
+            }
+        )
+
+        daily_onames = onames.copy()
+        daily_times = oobs["time"].to_numpy()
+
+        if has_prior:
+            pr_oe = aggregate_observation_ensemble(
+                pr_oe,
+                obs_names=daily_onames,
+                times=daily_times,
+                freq=aggregate_freq,
+                func=aggregate_func,
+                reference_index=obs_agg.index,
+            )
+
+        if has_posterior:
+            pt_oe = aggregate_observation_ensemble(
+                pt_oe,
+                obs_names=daily_onames,
+                times=daily_times,
+                freq=aggregate_freq,
+                func=aggregate_func,
+                reference_index=obs_agg.index,
+            )
+
+        onames = obs_agg.index
+
+    # Important for safe slicing below.
+    onames = pd.Index(onames)
+    tvals = pd.to_datetime(tvals)
+    t_index = pd.DatetimeIndex(tvals)
+
+    # ------------------------------------------------------------------
+    # Prepare posterior uncertainty band.
+    # This matches plot_tseries_ensemble().
+    # ------------------------------------------------------------------
+    if aggregate_freq is not None and has_posterior:
+        df_fill = build_posterior_fill(
+            pt_oe,
+            obgnam=obgnam,
+            obs_names=onames,
+            times=onames,
+        )
+
+    elif pt_fill is not None:
+        required_cols = {"obgnme", "pt_min", "pt_max"}
+        missing_cols = required_cols.difference(pt_fill.columns)
+
+        if missing_cols:
+            raise KeyError(
+                f"pt_fill is missing required columns: {sorted(missing_cols)}"
+            )
+
+        df_fill = pt_fill.loc[pt_fill["obgnme"] == obgnam].copy()
+
+        if df_fill.empty:
+            raise ValueError(f"No pt_fill records found for observation group: {obgnam}")
+
+        df_fill = df_fill.sort_index()
+
+    else:
+        df_fill = None
+
+    if len(t_index) < 2:
+        raise ValueError("Not enough time steps to animate.")
+
+    # ------------------------------------------------------------------
+    # Automatically set y-axis limits from posterior uncertainty band.
+    # This matches plot_tseries_ensemble().
+    # ------------------------------------------------------------------
+    if auto_ylim_from_pt_fill and df_fill is not None and ymin is None and ymax is None:
+        y_values = []
+
+        y_values.extend(df_fill["pt_min"].dropna().to_numpy(dtype=float))
+        y_values.extend(df_fill["pt_max"].dropna().to_numpy(dtype=float))
+
+        if include_obs_in_ylim and not oobs_nonzero.empty:
+            y_values.extend(oobs_nonzero["obsval"].dropna().to_numpy(dtype=float))
+
+        y_values = np.asarray(y_values, dtype=float)
+        y_values = y_values[np.isfinite(y_values)]
+
+        if y_values.size > 0:
+            y_min_auto = y_values.min()
+            y_max_auto = y_values.max()
+
+            y_range = y_max_auto - y_min_auto
+
+            if y_range == 0:
+                pad = abs(y_max_auto) * ylim_pad_fraction
+
+                if pad == 0:
+                    pad = 1.0
+            else:
+                pad = y_range * ylim_pad_fraction
+
+            ymin = y_min_auto - pad
+            ymax = y_max_auto + pad
+
+    # Fallback y-limits if pt_fill is not used.
+    if ymin is None or ymax is None:
+        y_values = []
+
+        if has_prior:
+            y_values.extend(pr_oe.loc[:, onames].to_numpy(dtype=float).ravel())
+
+        if has_posterior:
+            y_values.extend(pt_oe.loc[:, onames].to_numpy(dtype=float).ravel())
+
+        if not oobs_nonzero.empty:
+            y_values.extend(oobs_nonzero["obsval"].dropna().to_numpy(dtype=float))
+
+        y_values = np.asarray(y_values, dtype=float)
+        y_values = y_values[np.isfinite(y_values)]
+
+        if y_values.size > 0:
+            y_min_auto = y_values.min()
+            y_max_auto = y_values.max()
+
+            y_range = y_max_auto - y_min_auto
+
+            if y_range == 0:
+                pad = abs(y_max_auto) * ylim_pad_fraction
+                if pad == 0:
+                    pad = 1.0
+            else:
+                pad = y_range * ylim_pad_fraction
+
+            if ymin is None:
+                ymin = y_min_auto - pad
+
+            if ymax is None:
+                ymax = y_max_auto + pad
+
+    # ------------------------------------------------------------------
+    # Create figure.
+    # ------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(width, height))
+
+    ax.set_xlim(t_index.min(), t_index.max())
+
+    if ymin is not None or ymax is not None:
+        ax.set_ylim(ymin, ymax)
+
+    ax.set_ylabel("Discharge")
+    ax.set_title(f"Time-series ensemble animation: {obgnam}")
+    ax.grid(True, alpha=0.3)
+
+    # Format x-axis like plot_tseries_ensemble().
+    years = mdates.YearLocator()
+    years_fmt = mdates.DateFormatter("%Y")
+
+    months = mdates.MonthLocator()
+    months_fmt = mdates.DateFormatter("%b")
+
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+
+    ax.xaxis.set_minor_locator(months)
+    ax.xaxis.set_minor_formatter(months_fmt)
+
+    plt.setp(ax.xaxis.get_minorticklabels(), fontsize=6, rotation=90)
+
+    ax.tick_params(axis="both", labelsize=8, rotation=0)
+    ax.tick_params(axis="x", pad=15)
+    ax.margins(x=0.01)
+
+    # ------------------------------------------------------------------
+    # Initialize artists.
+    # ------------------------------------------------------------------
+    prior_artists = []
+    posterior_artists = []
+
+    fill_artist = {"poly": None}
+    fill_lower_line = None
+    fill_upper_line = None
+    best_artist = None
+
+    if dot:
+        if has_prior:
+            for idx, realization in enumerate(pr_oe.index):
+                sc = ax.scatter(
+                    [],
+                    [],
+                    color="gray",
+                    s=30,
+                    alpha=0.35,
+                    label="Prior ensemble" if idx == 0 else None,
+                    zorder=1,
+                )
+                prior_artists.append((sc, realization))
+
+        if has_posterior and df_fill is None:
+            for idx, realization in enumerate(pt_oe.index):
+                sc = ax.scatter(
+                    [],
+                    [],
+                    color="b",
+                    s=30,
+                    alpha=0.20,
+                    label="Posterior ensemble" if idx == 0 else None,
+                    zorder=2,
+                )
+                posterior_artists.append((sc, realization))
+
+    else:
+        if has_prior:
+            for idx, realization in enumerate(pr_oe.index):
+                ln, = ax.plot(
+                    [],
+                    [],
+                    color="0.5",
+                    lw=0.5,
+                    alpha=0.45,
+                    label="Prior ensemble" if idx == 0 else None,
+                    zorder=1,
+                )
+                prior_artists.append((ln, realization))
+
+        if has_posterior and df_fill is None:
+            for idx, realization in enumerate(pt_oe.index):
+                ln, = ax.plot(
+                    [],
+                    [],
+                    color="b",
+                    lw=0.5,
+                    alpha=0.40,
+                    label="Posterior ensemble" if idx == 0 else None,
+                    zorder=2,
+                )
+                posterior_artists.append((ln, realization))
+
+    # Posterior band edge lines.
+    if has_posterior and df_fill is not None and not dot:
+        fill_lower_line, = ax.plot(
+            [],
+            [],
+            color="b",
+            lw=0.8,
+            alpha=0.8,
+            zorder=3,
+        )
+
+        fill_upper_line, = ax.plot(
+            [],
+            [],
+            color="b",
+            lw=0.8,
+            alpha=0.8,
+            zorder=3,
+        )
+
+    # Best-estimate realization.
+    if bstcd is not None:
+        if not has_posterior:
+            raise ValueError("bstcd was provided, but pt_oe is None.")
+
+        if bstcd not in pt_oe.index:
+            raise KeyError(
+                f"Best-estimate realization '{bstcd}' was not found in pt_oe.index."
+            )
+
+        best_artist, = ax.plot(
+            [],
+            [],
+            color="b",
+            lw=1.5,
+            zorder=4,
+            label="Best estimate",
+        )
+
+    # Observed values.
+    obs_artist = ax.scatter(
+        [],
+        [],
+        edgecolor="red",
+        facecolor="none",
+        s=30 if dot else 14,
+        alpha=0.8,
+        label="Observed",
+        zorder=5,
+    )
+
+    time_text = ax.text(
+        0.98,
+        0.95,
+        "",
+        transform=ax.transAxes,
+        va="top",
+        ha="right",
+        fontsize=9,
+        bbox={
+            "boxstyle": "round",
+            "facecolor": "white",
+            "alpha": 0.8,
+        },
+    )
+
+    # Add legend.
+    handles, labels = ax.get_legend_handles_labels()
+
+    if labels:
+        unique = {}
+
+        for handle, label in zip(handles, labels):
+            if label not in unique:
+                unique[label] = handle
+
+        ax.legend(
+            unique.values(),
+            unique.keys(),
+            fontsize=8,
+            ncol=3,
+        )
+
+    fig.tight_layout()
+
+    # ------------------------------------------------------------------
+    # Animation update function.
+    # ------------------------------------------------------------------
+    def update(frame):
+        idx = frame + 1
+
+        current_times = t_index[:idx]
+        current_onames = onames[:idx]
+
+        artists = []
+
+        # --------------------------------------------------------------
+        # Prior ensemble.
+        # --------------------------------------------------------------
+        if has_prior:
+            for artist, realization in prior_artists:
+                y = pr_oe.loc[realization, current_onames].to_numpy(dtype=float)
+
+                if dot:
+                    xy = np.column_stack(
+                        [
+                            mdates.date2num(current_times.to_pydatetime()),
+                            y,
+                        ]
+                    )
+                    artist.set_offsets(xy)
+                else:
+                    artist.set_data(current_times, y)
+
+                artists.append(artist)
+
+        # --------------------------------------------------------------
+        # Posterior ensemble or posterior band.
+        # --------------------------------------------------------------
+        if has_posterior:
+            if df_fill is not None and not dot:
+                if fill_artist["poly"] is not None:
+                    fill_artist["poly"].remove()
+
+                fill_now = df_fill.iloc[:idx]
+
+                fill_artist["poly"] = ax.fill_between(
+                    fill_now.index,
+                    fill_now["pt_min"].to_numpy(dtype=float),
+                    fill_now["pt_max"].to_numpy(dtype=float),
+                    interpolate=False,
+                    color="b",
+                    alpha=0.35,
+                    label="Posterior range" if frame == 0 else None,
+                    zorder=3,
+                )
+
+                fill_lower_line.set_data(
+                    fill_now.index,
+                    fill_now["pt_min"].to_numpy(dtype=float),
+                )
+
+                fill_upper_line.set_data(
+                    fill_now.index,
+                    fill_now["pt_max"].to_numpy(dtype=float),
+                )
+
+                artists.extend(
+                    [
+                        fill_artist["poly"],
+                        fill_lower_line,
+                        fill_upper_line,
+                    ]
+                )
+
+            else:
+                for artist, realization in posterior_artists:
+                    y = pt_oe.loc[realization, current_onames].to_numpy(dtype=float)
+
+                    if dot:
+                        xy = np.column_stack(
+                            [
+                                mdates.date2num(current_times.to_pydatetime()),
+                                y,
+                            ]
+                        )
+                        artist.set_offsets(xy)
+                    else:
+                        artist.set_data(current_times, y)
+
+                    artists.append(artist)
+
+        # --------------------------------------------------------------
+        # Best-estimate posterior realization.
+        # --------------------------------------------------------------
+        if best_artist is not None:
+            y = pt_oe.loc[bstcd, current_onames].to_numpy(dtype=float)
+            best_artist.set_data(current_times, y)
+            artists.append(best_artist)
+
+        # --------------------------------------------------------------
+        # Observed values.
+        # Use observed times <= current animation time.
+        # This avoids problems when observed data are missing.
+        # --------------------------------------------------------------
+        current_time = t_index[idx - 1]
+
+        obs_now = oobs_nonzero.loc[
+            pd.to_datetime(oobs_nonzero["time"]) <= current_time
+        ].copy()
+
+        if obs_now.empty:
+            obs_artist.set_offsets(np.empty((0, 2)))
+        else:
+            obs_xy = np.column_stack(
+                [
+                    mdates.date2num(pd.to_datetime(obs_now["time"]).dt.to_pydatetime()),
+                    obs_now["obsval"].to_numpy(dtype=float),
+                ]
+            )
+            obs_artist.set_offsets(obs_xy)
+
+        artists.append(obs_artist)
+
+        time_text.set_text(current_time.strftime("%Y-%m-%d"))
+        artists.append(time_text)
+
+        return artists
+
+    anim = FuncAnimation(
+        fig,
+        update,
+        frames=len(t_index),
+        interval=interval,
+        blit=False,
+        repeat=True,
+        repeat_delay=repeat_delay,
+    )
+
+    # ------------------------------------------------------------------
+    # Save animation.
+    # ------------------------------------------------------------------
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if writer.lower() == "pillow":
+            anim.save(
+                save_path,
+                writer=PillowWriter(fps=fps),
+                dpi=dpi,
+            )
+
+        elif writer.lower() == "ffmpeg":
+            anim.save(
+                save_path,
+                writer=FFMpegWriter(fps=fps),
+                dpi=dpi,
+            )
+
+        else:
+            raise ValueError("writer must be either 'pillow' or 'ffmpeg'.")
+
+    if show:
+        plt.show()
+
+    if close:
+        plt.close(fig)
+
+    return anim, fig, ax
+
+
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
+
+
+def animate_tseries_ensemble_by_realization_org(
+    pst=None,
+    obgnam=None,
+    *,
+    pr_oe=None,
+    pt_oe=None,
+    width=10,
+    height=3,
+    bstcd=None,
+    pt_fill=None,
+    ymin=None,
+    ymax=None,
+    auto_ylim_from_pt_fill=False,
+    ylim_pad_fraction=0.10,
+    include_obs_in_ylim=True,
+    aggregate_freq=None,
+    aggregate_func="mean",
+    pst_file=None,
+    model_dir=None,
+    case=None,
+    last_iter=None,
+    auto_load_ies=False,
+    auto_build_pt_fill=True,
+    max_prior_realizations=None,
+    max_posterior_realizations=None,
+    show_prior=True,
+    show_posterior=True,
+    show_observed=True,
+    show_posterior_band=False,
+    prior_label="Prior ensemble",
+    posterior_label="Posterior ensemble",
+    observed_label="Observed",
+    title=None,
+    ylabel="Discharge",
+    save_path=None,
+    writer="pillow",
+    fps=8,
+    interval=250,
+    pause_seconds=2.0,
+    repeat=True,
+    dpi=150,
+    show=False,
+    close=False,
+    save_first_last_figures=False,
+    first_last_dir=None,
+    first_fig_name=None,
+    last_fig_name=None,
+):
+    """
+    Animate a time-series ensemble plot by adding ensemble realizations one by one.
+
+    This is not a time-progress animation. The full time axis is shown from
+    the beginning, and each frame adds another prior and/or posterior
+    realization.
+
+    Parameters
+    ----------
+    pst : pyemu.Pst, optional
+        PEST control object. Required unless auto_load_ies=True and pst_file
+        is provided.
+
+    obgnam : str
+        Observation group name to animate.
+
+    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Prior observation ensemble. Rows are realizations and columns are
+        observation names.
+
+    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Posterior observation ensemble. Rows are realizations and columns are
+        observation names.
+
+    width, height : float, default 10, 3
+        Figure size in inches.
+
+    bstcd : str, optional
+        Best-estimate posterior realization name. If provided, this realization
+        is plotted as a thicker blue line and remains visible throughout the
+        animation.
+
+    pt_fill : pandas.DataFrame, optional
+        Posterior uncertainty range dataframe. Expected columns are:
+        obgnme, pt_min, and pt_max. The index should be datetime-like.
+
+    ymin, ymax : float, optional
+        Manual y-axis limits. If provided, these override automatic y-axis
+        limits.
+
+    auto_ylim_from_pt_fill : bool, default False
+        If True, y-axis limits are calculated from the posterior uncertainty
+        band.
+
+    ylim_pad_fraction : float, default 0.10
+        Fractional padding added to automatic y-axis limits.
+
+    include_obs_in_ylim : bool, default True
+        If True, observed values are included when calculating automatic
+        y-axis limits.
+
+    aggregate_freq : str, optional
+        Temporal aggregation frequency before plotting. For example:
+        "MS" for monthly mean, "YS" for yearly mean. If None, the original
+        time step is used.
+
+    aggregate_func : str, default "mean"
+        Aggregation function used when aggregate_freq is provided.
+
+    pst_file : str or pathlib.Path, optional
+        PEST control file path used when auto_load_ies=True.
+
+    model_dir : str or pathlib.Path, optional
+        Directory containing PESTPP-IES output files.
+
+    case : str, optional
+        PEST++ case name. For example, if outputs are named
+        pecos_rw_ies.0.obs.csv and pecos_rw_ies.4.obs.csv, then
+        case="pecos_rw_ies".
+
+    last_iter : int, optional
+        Posterior IES iteration to load.
+
+    auto_load_ies : bool, default False
+        If True, automatically load prior and posterior observation ensembles
+        from PESTPP-IES output files.
+
+    auto_build_pt_fill : bool, default True
+        If True and auto_load_ies=True, also build the posterior uncertainty
+        range dataframe.
+
+    max_prior_realizations : int, optional
+        Maximum number of prior realizations to animate.
+
+    max_posterior_realizations : int, optional
+        Maximum number of posterior realizations to animate.
+
+    show_prior : bool, default True
+        If True, animate prior ensemble realizations as gray lines.
+
+    show_posterior : bool, default True
+        If True, animate posterior ensemble realizations as blue lines.
+
+    show_observed : bool, default True
+        If True, plot observed values as red open circles.
+
+    show_posterior_band : bool, default False
+        If True, plot the posterior uncertainty band from the beginning.
+
+    prior_label, posterior_label, observed_label : str
+        Legend labels.
+
+    title : str, optional
+        Plot title.
+
+    ylabel : str, default "Discharge"
+        Y-axis label.
+
+    save_path : str or pathlib.Path, optional
+        Output animation path. Use ".gif" with writer="pillow" or ".mp4"
+        with writer="ffmpeg".
+
+    writer : {"pillow", "ffmpeg"}, default "pillow"
+        Animation writer.
+
+    fps : int, default 8
+        Frames per second for saved animation.
+
+    interval : int, default 250
+        Delay between frames in milliseconds for interactive display.
+
+    pause_seconds : float, default 2.0
+        Extra pause at the final fully built ensemble state. This is implemented
+        by adding duplicate final frames, so it works reliably for saved GIFs.
+
+    repeat : bool, default True
+        If True, repeat the animation. For saved GIFs with PillowWriter,
+        repeat=False requires GIF post-processing, which this function applies
+        automatically.
+
+    dpi : int, default 150
+        Resolution of saved animation and optional first/last figures.
+
+    show : bool, default False
+        If True, display the animation figure.
+
+    close : bool, default False
+        If True, close the figure after saving.
+
+    save_first_last_figures : bool, default False
+        If True, save static PNG snapshots of the first and last animation
+        states.
+
+    first_last_dir : str or pathlib.Path, optional
+        Directory where first and last static figures are saved. If None,
+        the animation output directory is used.
+
+    first_fig_name, last_fig_name : str, optional
+        File names for the first and last static figures.
+
+    Returns
+    -------
+    anim : matplotlib.animation.FuncAnimation
+        Animation object.
+
+    fig : matplotlib.figure.Figure
+        Figure object.
+
+    ax : matplotlib.axes.Axes
+        Axis object.
+    """
+
+    from pathlib import Path
+
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
+
+    from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
+
+    if obgnam is None:
+        raise ValueError("obgnam must be provided.")
+
+    # ------------------------------------------------------------------
+    # Helper for making saved GIF non-looping.
+    # ------------------------------------------------------------------
+    def _make_gif_nonlooping(gif_path):
+        try:
+            from PIL import Image, ImageSequence
+        except ImportError as err:
+            raise ImportError(
+                "Pillow is required to post-process GIF repeat behavior. "
+                "Install it with: pip install pillow"
+            ) from err
+
+        gif_path = Path(gif_path)
+
+        im = Image.open(gif_path)
+        frames = [frame.copy() for frame in ImageSequence.Iterator(im)]
+
+        if not frames:
+            return
+
+        # IMPORTANT:
+        # Do not read duration from im.info.
+        # Use fps directly so pause frames do not slow down all frames.
+        frame_duration = int(1000 / fps)
+
+        frames[0].save(
+            gif_path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=frame_duration,
+            loop=1,
+        )
+
+    # ------------------------------------------------------------------
+    # Optional automatic loading for PESTPP-IES outputs.
+    # This follows the same logic as plot_tseries_ensemble().
+    # ------------------------------------------------------------------
+    if auto_load_ies:
+        ies = load_ies_observation_ensembles(
+            pst=pst,
+            pst_file=pst_file,
+            model_dir=model_dir,
+            case=case,
+            last_iter=last_iter,
+            build_pt_fill=auto_build_pt_fill,
+        )
+
+        pst = ies["pst"]
+
+        if pr_oe is None:
+            pr_oe = ies["pr_oe"]
+
+        if pt_oe is None:
+            pt_oe = ies["pt_oe"]
+
+        if pt_fill is None and auto_build_pt_fill:
+            pt_fill = ies["pt_fill"]
+
+    if pst is None:
+        raise ValueError(
+            "pst is required. Provide pst directly or use auto_load_ies=True "
+            "with pst_file."
+        )
+
+    # ------------------------------------------------------------------
+    # Convert pyEMU ensemble-like objects to pandas DataFrames.
+    # ------------------------------------------------------------------
+    pr_oe = _ensemble_to_dataframe(pr_oe, name="pr_oe")
+    pt_oe = _ensemble_to_dataframe(pt_oe, name="pt_oe")
+
+    has_prior = pr_oe is not None and show_prior
+    has_posterior = pt_oe is not None and show_posterior
+
+    if not has_prior and not has_posterior:
+        raise ValueError("At least one of pr_oe or pt_oe must be provided.")
+
+    # ------------------------------------------------------------------
+    # Get observation data from PEST control file.
+    # ------------------------------------------------------------------
+    obs = pst.observation_data.copy()
+    obs = obs.loc[obs.obgnme.isin(pst.nnz_obs_groups)].copy()
+
+    # Assumes last 8 characters of obsnme are dates.
+    obs["time"] = pd.to_datetime(obs.obsnme.str[-8:], errors="coerce")
+
+    oobs = obs.loc[obs.obgnme == obgnam].copy()
+
+    if oobs.empty:
+        raise ValueError(f"No observations found for observation group: {obgnam}")
+
+    oobs = oobs.dropna(subset=["time"]).copy()
+
+    if oobs.empty:
+        raise ValueError(
+            f"Observations were found for {obgnam}, but no valid dates could be parsed "
+            "from the last 8 characters of obsnme."
+        )
+
+    oobs.sort_values("time", inplace=True)
+
+    tvals = oobs.time.to_numpy()
+    onames = oobs.obsnme.to_numpy()
+
+    # ------------------------------------------------------------------
+    # Prepare prior ensemble.
+    # ------------------------------------------------------------------
+    if has_prior:
+        pr_oe = pr_oe.where(pr_oe > -999)
+
+        missing_prior_cols = [name for name in onames if name not in pr_oe.columns]
+
+        if missing_prior_cols:
+            raise KeyError(
+                f"{len(missing_prior_cols)} observation names are missing from pr_oe. "
+                f"Example missing name: {missing_prior_cols[0]}"
+            )
+
+    # ------------------------------------------------------------------
+    # Prepare posterior ensemble.
+    # ------------------------------------------------------------------
+    if has_posterior:
+        pt_oe = pt_oe.where(pt_oe > -999)
+
+        missing_post_cols = [name for name in onames if name not in pt_oe.columns]
+
+        if missing_post_cols:
+            raise KeyError(
+                f"{len(missing_post_cols)} observation names are missing from pt_oe. "
+                f"Example missing name: {missing_post_cols[0]}"
+            )
+
+    # ------------------------------------------------------------------
+    # Prepare observed values with non-zero weight.
+    # ------------------------------------------------------------------
+    oobs_nonzero = oobs.loc[oobs.weight > 0].copy()
+
+    # ------------------------------------------------------------------
+    # Optional temporal aggregation.
+    # This matches plot_tseries_ensemble().
+    # ------------------------------------------------------------------
+    if aggregate_freq is not None:
+
+        obs_agg = aggregate_series(
+            oobs_nonzero["obsval"].to_numpy(),
+            oobs_nonzero["time"].to_numpy(),
+            freq=aggregate_freq,
+            func=aggregate_func,
+        )
+
+        if obs_agg.empty:
+            raise ValueError(
+                f"No valid aggregated observed values for observation group: {obgnam}"
+            )
+
+        tvals = obs_agg.index.to_numpy()
+
+        oobs_nonzero = pd.DataFrame(
+            {
+                "time": obs_agg.index,
+                "obsval": obs_agg.values,
+                "weight": 1.0,
+            }
+        )
+
+        daily_onames = onames.copy()
+        daily_times = oobs["time"].to_numpy()
+
+        if has_prior:
+            pr_oe = aggregate_observation_ensemble(
+                pr_oe,
+                obs_names=daily_onames,
+                times=daily_times,
+                freq=aggregate_freq,
+                func=aggregate_func,
+                reference_index=obs_agg.index,
+            )
+
+        if has_posterior:
+            pt_oe = aggregate_observation_ensemble(
+                pt_oe,
+                obs_names=daily_onames,
+                times=daily_times,
+                freq=aggregate_freq,
+                func=aggregate_func,
+                reference_index=obs_agg.index,
+            )
+
+        onames = obs_agg.index
+
+    onames = pd.Index(onames)
+    tvals = pd.to_datetime(tvals)
+
+    # ------------------------------------------------------------------
+    # Prepare posterior uncertainty band.
+    # This follows the same structure as plot_tseries_ensemble().
+    # ------------------------------------------------------------------
+    if aggregate_freq is not None and has_posterior:
+        df_fill = build_posterior_fill(
+            pt_oe,
+            obgnam=obgnam,
+            obs_names=onames,
+            times=onames,
+        )
+
+    elif pt_fill is not None:
+        required_cols = {"obgnme", "pt_min", "pt_max"}
+        missing_cols = required_cols.difference(pt_fill.columns)
+
+        if missing_cols:
+            raise KeyError(
+                f"pt_fill is missing required columns: {sorted(missing_cols)}"
+            )
+
+        df_fill = pt_fill.loc[pt_fill["obgnme"] == obgnam].copy()
+
+        if df_fill.empty:
+            raise ValueError(f"No pt_fill records found for observation group: {obgnam}")
+
+        df_fill = df_fill.sort_index()
+
+    else:
+        df_fill = None
+
+    # ------------------------------------------------------------------
+    # Select realizations.
+    # ------------------------------------------------------------------
+    if has_prior:
+        prior_reals = list(pr_oe.index)
+
+        if max_prior_realizations is not None:
+            prior_reals = prior_reals[:max_prior_realizations]
+    else:
+        prior_reals = []
+
+    if has_posterior:
+        posterior_reals = list(pt_oe.index)
+
+        if max_posterior_realizations is not None:
+            posterior_reals = posterior_reals[:max_posterior_realizations]
+    else:
+        posterior_reals = []
+
+    n_frames = max(len(prior_reals), len(posterior_reals))
+
+    if n_frames == 0:
+        raise ValueError("No realizations available to animate.")
+
+    pause_frames = int(fps * pause_seconds)
+    total_frames = n_frames + pause_frames
+
+    # ------------------------------------------------------------------
+    # Automatically set y-axis limits from posterior uncertainty band.
+    # Same behavior as plot_tseries_ensemble().
+    # ------------------------------------------------------------------
+    if auto_ylim_from_pt_fill and df_fill is not None and ymin is None and ymax is None:
+        y_values = []
+
+        y_values.extend(df_fill["pt_min"].dropna().to_numpy(dtype=float))
+        y_values.extend(df_fill["pt_max"].dropna().to_numpy(dtype=float))
+
+        if include_obs_in_ylim and not oobs_nonzero.empty:
+            y_values.extend(oobs_nonzero["obsval"].dropna().to_numpy(dtype=float))
+
+        y_values = np.asarray(y_values, dtype=float)
+        y_values = y_values[np.isfinite(y_values)]
+
+        if y_values.size > 0:
+            y_min_auto = y_values.min()
+            y_max_auto = y_values.max()
+            y_range = y_max_auto - y_min_auto
+
+            if y_range == 0:
+                pad = abs(y_max_auto) * ylim_pad_fraction
+
+                if pad == 0:
+                    pad = 1.0
+            else:
+                pad = y_range * ylim_pad_fraction
+
+            ymin = y_min_auto - pad
+            ymax = y_max_auto + pad
+
+    # ------------------------------------------------------------------
+    # Fallback y-axis limits.
+    # ------------------------------------------------------------------
+    if ymin is None or ymax is None:
+        y_values = []
+
+        if has_prior and prior_reals:
+            y_values.extend(
+                pr_oe.loc[prior_reals, onames].to_numpy(dtype=float).ravel()
+            )
+
+        if has_posterior and posterior_reals:
+            y_values.extend(
+                pt_oe.loc[posterior_reals, onames].to_numpy(dtype=float).ravel()
+            )
+
+        if not oobs_nonzero.empty:
+            y_values.extend(oobs_nonzero["obsval"].dropna().to_numpy(dtype=float))
+
+        y_values = np.asarray(y_values, dtype=float)
+        y_values = y_values[np.isfinite(y_values)]
+
+        if y_values.size > 0:
+            y_min_auto = y_values.min()
+            y_max_auto = y_values.max()
+            y_range = y_max_auto - y_min_auto
+
+            if y_range == 0:
+                pad = abs(y_max_auto) * ylim_pad_fraction
+
+                if pad == 0:
+                    pad = 1.0
+            else:
+                pad = y_range * ylim_pad_fraction
+
+            if ymin is None:
+                ymin = y_min_auto - pad
+
+            if ymax is None:
+                ymax = y_max_auto + pad
+
+    # ------------------------------------------------------------------
+    # Create figure.
+    # ------------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(width, height))
+
+    ax.set_xlim(tvals.min(), tvals.max())
+
+    if ymin is not None or ymax is not None:
+        ax.set_ylim(ymin, ymax)
+
+    ax.set_ylabel(ylabel)
+
+    if title is None:
+        if aggregate_freq is None:
+            title = f"Ensemble realization animation: {obgnam}"
+        else:
+            title = (
+                f"Ensemble realization animation "
+                f"({aggregate_freq}, {aggregate_func}): {obgnam}"
+            )
+
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+
+    # ------------------------------------------------------------------
+    # Optional posterior band shown from beginning.
+    # ------------------------------------------------------------------
+    if show_posterior_band and df_fill is not None:
+        ax.fill_between(
+            df_fill.index,
+            df_fill["pt_min"].to_numpy(dtype=float),
+            df_fill["pt_max"].to_numpy(dtype=float),
+            interpolate=False,
+            color="b",
+            alpha=0.20,
+            label="Posterior range",
+            zorder=2,
+        )
+
+        ax.plot(
+            df_fill.index,
+            df_fill["pt_min"].to_numpy(dtype=float),
+            color="b",
+            lw=0.8,
+            alpha=0.5,
+            zorder=2,
+        )
+
+        ax.plot(
+            df_fill.index,
+            df_fill["pt_max"].to_numpy(dtype=float),
+            color="b",
+            lw=0.8,
+            alpha=0.5,
+            zorder=2,
+        )
+
+    # ------------------------------------------------------------------
+    # Observed values shown from beginning.
+    # ------------------------------------------------------------------
+    if show_observed:
+        ax.scatter(
+            oobs_nonzero.time,
+            oobs_nonzero.obsval,
+            edgecolor="red",
+            facecolor="none",
+            s=14,
+            zorder=5,
+            alpha=0.8,
+            label=observed_label,
+        )
+
+    # ------------------------------------------------------------------
+    # Best-estimate line shown from beginning.
+    # ------------------------------------------------------------------
+    if bstcd is not None:
+        if not has_posterior:
+            raise ValueError("bstcd was provided, but pt_oe is None.")
+
+        if bstcd not in pt_oe.index:
+            raise KeyError(
+                f"Best-estimate realization '{bstcd}' was not found in pt_oe.index."
+            )
+
+        ax.plot(
+            tvals,
+            pt_oe.loc[bstcd, onames].to_numpy(dtype=float),
+            color="b",
+            lw=1.5,
+            zorder=4,
+            label="Best estimate",
+        )
+
+    # ------------------------------------------------------------------
+    # Axis formatting.
+    # ------------------------------------------------------------------
+    years = mdates.YearLocator()
+    years_fmt = mdates.DateFormatter("%Y")
+
+    months = mdates.MonthLocator()
+    months_fmt = mdates.DateFormatter("%b")
+
+    ax.xaxis.set_major_locator(years)
+    ax.xaxis.set_major_formatter(years_fmt)
+
+    ax.xaxis.set_minor_locator(months)
+    ax.xaxis.set_minor_formatter(months_fmt)
+
+    plt.setp(ax.xaxis.get_minorticklabels(), fontsize=6, rotation=90)
+
+    ax.tick_params(axis="both", labelsize=8, rotation=0)
+    ax.tick_params(axis="x", pad=15)
+    ax.margins(x=0.01)
+
+    # ------------------------------------------------------------------
+    # Frame text.
+    # ------------------------------------------------------------------
+    frame_text = ax.text(
+        0.98,
+        0.95,
+        "",
+        transform=ax.transAxes,
+        va="top",
+        ha="right",
+        fontsize=9,
+        bbox={
+            "boxstyle": "round",
+            "facecolor": "white",
+            "alpha": 0.8,
+        },
+    )
+
+    # ------------------------------------------------------------------
+    # Dummy artists for legend.
+    # ------------------------------------------------------------------
+    if has_prior:
+        ax.plot(
+            [],
+            [],
+            color="0.5",
+            lw=0.5,
+            alpha=0.45,
+            label=prior_label,
+            zorder=1,
+        )
+
+    if has_posterior:
+        ax.plot(
+            [],
+            [],
+            color="b",
+            lw=0.5,
+            alpha=0.40,
+            label=posterior_label,
+            zorder=3,
+        )
+
+    handles, labels = ax.get_legend_handles_labels()
+
+    if labels:
+        unique = {}
+
+        for handle, label in zip(handles, labels):
+            if label not in unique:
+                unique[label] = handle
+
+        ax.legend(
+            unique.values(),
+            unique.keys(),
+            fontsize=8,
+            ncol=3,
+        )
+
+    fig.tight_layout()
+
+    # ------------------------------------------------------------------
+    # Optional first/last static figure paths.
+    # ------------------------------------------------------------------
+    if save_first_last_figures:
+        if first_last_dir is None:
+            if save_path is not None:
+                first_last_dir = Path(save_path).parent
+            else:
+                first_last_dir = Path(".")
+
+        first_last_dir = Path(first_last_dir)
+        first_last_dir.mkdir(parents=True, exist_ok=True)
+
+        if first_fig_name is None:
+            first_fig_name = f"{obgnam}_ensemble_first.png"
+
+        if last_fig_name is None:
+            last_fig_name = f"{obgnam}_ensemble_last.png"
+
+        first_fig_path = first_last_dir / first_fig_name
+        last_fig_path = first_last_dir / last_fig_name
+    else:
+        first_fig_path = None
+        last_fig_path = None
+
+    # ------------------------------------------------------------------
+    # Animation update.
+    # ------------------------------------------------------------------
+    plotted_artists = {
+        "prior": [],
+        "posterior": [],
     }
 
+    saved_first = {"done": False}
+    saved_last = {"done": False}
+
+    def update(frame):
+        artists = []
+
+        if frame >= n_frames:
+            i = n_frames - 1
+            is_pause = True
+        else:
+            i = frame
+            is_pause = False
+
+        # Add one prior realization only during active frames.
+        if not is_pause and has_prior and i < len(prior_reals):
+            realization = prior_reals[i]
+
+            y = pr_oe.loc[realization, onames].to_numpy(dtype=float)
+
+            ln, = ax.plot(
+                tvals,
+                y,
+                color="0.5",
+                lw=0.5,
+                alpha=0.45,
+                zorder=1,
+            )
+
+            plotted_artists["prior"].append(ln)
+            artists.append(ln)
+
+        # Add one posterior realization only during active frames.
+        if not is_pause and has_posterior and i < len(posterior_reals):
+            realization = posterior_reals[i]
+
+            y = pt_oe.loc[realization, onames].to_numpy(dtype=float)
+
+            ln, = ax.plot(
+                tvals,
+                y,
+                color="b",
+                lw=0.5,
+                alpha=0.40,
+                zorder=3,
+            )
+
+            plotted_artists["posterior"].append(ln)
+            artists.append(ln)
+
+        n_prior = min(i + 1, len(prior_reals)) if has_prior else 0
+        n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
+
+        frame_text.set_text(
+            f"Prior realizations: {n_prior}\n"
+            f"Posterior realizations: {n_post}"
+        )
+
+        artists.append(frame_text)
+
+        # --------------------------------------------------------------
+        # Optional first and last static figures.
+        # These are saved during animation rendering.
+        # --------------------------------------------------------------
+        if save_first_last_figures and not is_pause:
+            if frame == 0 and first_fig_path is not None and not saved_first["done"]:
+                fig.savefig(first_fig_path, dpi=dpi, bbox_inches="tight")
+                saved_first["done"] = True
+
+            if (
+                frame == n_frames - 1
+                and last_fig_path is not None
+                and not saved_last["done"]
+            ):
+                fig.savefig(last_fig_path, dpi=dpi, bbox_inches="tight")
+                saved_last["done"] = True
+
+        return artists
+
+    anim = FuncAnimation(
+        fig,
+        update,
+        frames=total_frames,
+        interval=interval,
+        blit=False,
+        repeat=repeat,
+    )
+
+    # ------------------------------------------------------------------
+    # Save animation.
+    # ------------------------------------------------------------------
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if writer.lower() == "pillow":
+            anim.save(
+                save_path,
+                writer=PillowWriter(fps=fps),
+                dpi=dpi,
+            )
+
+            # PillowWriter often saves GIFs as looping even when repeat=False.
+            # This post-processes the GIF loop setting.
+            if repeat is False:
+                _make_gif_nonlooping(save_path)
+
+        elif writer.lower() == "ffmpeg":
+            anim.save(
+                save_path,
+                writer=FFMpegWriter(fps=fps),
+                dpi=dpi,
+            )
+
+        else:
+            raise ValueError("writer must be either 'pillow' or 'ffmpeg'.")
+
+    if show:
+        plt.show()
+
+    if close:
+        plt.close(fig)
+
+    return anim, fig, ax
 
 
-def _validate_realizations_per_frame(realizations_per_frame):
-    """
-    Validate and normalize the number of realizations added per animation frame.
-
-    This is useful for large PESTPP-IES ensembles because adding one
-    realization per frame can create very slow GIF/MP4 files. For example,
-    realizations_per_frame=5 adds five prior/posterior realizations during
-    each animation update frame.
-    """
-    try:
-        realizations_per_frame = int(realizations_per_frame)
-    except Exception as err:
-        raise ValueError("realizations_per_frame must be a positive integer.") from err
-
-    if realizations_per_frame < 1:
-        raise ValueError("realizations_per_frame must be >= 1.")
-
-    return realizations_per_frame
 
 def animate_tseries_ensemble_by_realization(
     pst=None,
@@ -3468,7 +4766,6 @@ def animate_tseries_ensemble_by_realization(
     auto_build_pt_fill=True,
     max_prior_realizations=None,
     max_posterior_realizations=None,
-    realizations_per_frame=5,
     show_prior=True,
     show_posterior=True,
     show_observed=True,
@@ -3502,13 +4799,9 @@ def animate_tseries_ensemble_by_realization(
 
     If animate_only_posterior=True, all prior realizations are drawn
     statically first, and only posterior realizations are animated.
-
-    realizations_per_frame controls how many realizations are added at each
-    frame. For example, realizations_per_frame=5 adds five lines per frame.
     """
 
     from pathlib import Path
-    import math
 
     import numpy as np
     import pandas as pd
@@ -3518,8 +4811,6 @@ def animate_tseries_ensemble_by_realization(
 
     if obgnam is None:
         raise ValueError("obgnam must be provided.")
-
-    realizations_per_frame = _validate_realizations_per_frame(realizations_per_frame)
 
     # ------------------------------------------------------------------
     # Helper for making saved GIF non-looping.
@@ -3765,14 +5056,13 @@ def animate_tseries_ensemble_by_realization(
         posterior_reals = []
 
     if animate_only_posterior:
-        n_realization_steps = len(posterior_reals)
+        n_frames = len(posterior_reals)
     else:
-        n_realization_steps = max(len(prior_reals), len(posterior_reals))
+        n_frames = max(len(prior_reals), len(posterior_reals))
 
-    if n_realization_steps == 0:
+    if n_frames == 0:
         raise ValueError("No realizations available to animate.")
 
-    n_frames = math.ceil(n_realization_steps / realizations_per_frame)
     pause_frames = int(fps * pause_seconds)
     total_frames = n_frames + pause_frames
 
@@ -4090,49 +5380,48 @@ def animate_tseries_ensemble_by_realization(
             i = frame
             is_pause = False
 
-        start_idx = i * realizations_per_frame
-        end_idx = (i + 1) * realizations_per_frame
+        # Animate prior only if requested.
+        if not is_pause and animate_prior and i < len(prior_reals):
+            realization = prior_reals[i]
 
-        # Animate prior only if requested. Add a batch of realizations per frame.
-        if not is_pause and animate_prior:
-            for realization in prior_reals[start_idx:end_idx]:
-                y = pr_oe.loc[realization, onames].to_numpy(dtype=float)
+            y = pr_oe.loc[realization, onames].to_numpy(dtype=float)
 
-                ln, = ax.plot(
-                    tvals,
-                    y,
-                    color="0.5",
-                    lw=0.5,
-                    alpha=0.45,
-                    zorder=1,
-                )
+            ln, = ax.plot(
+                tvals,
+                y,
+                color="0.5",
+                lw=0.5,
+                alpha=0.45,
+                zorder=1,
+            )
 
-                plotted_artists["prior"].append(ln)
-                artists.append(ln)
+            plotted_artists["prior"].append(ln)
+            artists.append(ln)
 
-        # Animate posterior. Add a batch of realizations per frame.
-        if not is_pause and animate_posterior:
-            for realization in posterior_reals[start_idx:end_idx]:
-                y = pt_oe.loc[realization, onames].to_numpy(dtype=float)
+        # Animate posterior.
+        if not is_pause and animate_posterior and i < len(posterior_reals):
+            realization = posterior_reals[i]
 
-                ln, = ax.plot(
-                    tvals,
-                    y,
-                    color="b",
-                    lw=0.5,
-                    alpha=0.40,
-                    zorder=3,
-                )
+            y = pt_oe.loc[realization, onames].to_numpy(dtype=float)
 
-                plotted_artists["posterior"].append(ln)
-                artists.append(ln)
+            ln, = ax.plot(
+                tvals,
+                y,
+                color="b",
+                lw=0.5,
+                alpha=0.40,
+                zorder=3,
+            )
+
+            plotted_artists["posterior"].append(ln)
+            artists.append(ln)
 
         if animate_only_posterior:
             n_prior = len(prior_reals) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
         else:
-            n_prior = min(end_idx, len(prior_reals)) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_prior = min(i + 1, len(prior_reals)) if has_prior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
 
         frame_text.set_text(
             f"Prior realizations: {n_prior}\n"
@@ -4202,6 +5491,221 @@ def animate_tseries_ensemble_by_realization(
     return anim, fig, ax
 
 
+def plot_ies_fdc_ensemble_by_group(
+    pst=None,
+    *,
+    pr_oe=None,
+    pt_oe=None,
+    obs_groups=None,
+    out_dir="ies_fdc",
+    prefix="ies_fdc",
+    width=6,
+    height=5,
+    logy=True,
+    posterior_band=True,
+    posterior_band_quantiles=(0.05, 0.95),
+    plot_prior_lines=True,
+    plot_posterior_lines=False,
+    obs_dot=False,
+    obs_marker_size=18,
+    obs_line=True,
+    aggregate_freq=None,
+    aggregate_func="mean",
+    ymin=None,
+    ymax=None,
+    title=None,
+    dpi=300,
+    show=False,
+    close=True,
+    verbose=True,
+    # auto-load IES options
+    pst_file=None,
+    model_dir=None,
+    case=None,
+    last_iter=None,
+    auto_load_ies=False,
+):
+    """
+    Plot IES flow-duration-curve ensemble figures for multiple observation groups.
+
+    This is a batch wrapper around plot_fdc_ensemble().
+
+    It supports the same auto_load_ies workflow as plot_fdc_ensemble(),
+    but loads the PESTPP-IES output ensembles only once before looping through
+    observation groups.
+
+    Parameters
+    ----------
+    pst : pyemu.Pst, optional
+        PEST control object.
+
+    pr_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Prior observation ensemble.
+
+    pt_oe : pandas.DataFrame or pyemu.ObservationEnsemble, optional
+        Posterior observation ensemble.
+
+    obs_groups : list-like, optional
+        Observation groups to plot. If None, uses pst.nnz_obs_groups.
+
+    out_dir : str or pathlib.Path
+        Output directory for saved figures.
+
+    prefix : str
+        Prefix for output figure names.
+
+    width, height : float
+        Figure size in inches.
+
+    logy : bool
+        If True, use log scale for the y-axis.
+
+    posterior_band : bool
+        If True, plot posterior FDC uncertainty band.
+
+    posterior_band_quantiles : tuple
+        Lower and upper quantiles for posterior FDC band.
+
+    plot_prior_lines : bool
+        If True, plot individual prior ensemble FDCs.
+
+    plot_posterior_lines : bool
+        If True, plot individual posterior ensemble FDCs.
+
+    obs_dot : bool
+        If True, plot observed FDC as points.
+
+    obs_marker_size : float
+        Marker size for observed FDC points.
+
+    obs_line : bool
+        If True, plot observed FDC as a line.
+
+    aggregate_freq : str, optional
+        Temporal aggregation frequency before FDC calculation.
+        Example: "MS" for monthly mean FDC.
+
+    aggregate_func : str
+        Aggregation function before FDC calculation.
+
+    ymin, ymax : float, optional
+        Manual y-axis limits.
+
+    title : str, optional
+        Optional title. If None, plot_fdc_ensemble() generates one.
+
+    dpi : int
+        Saved figure resolution.
+
+    show : bool
+        If True, display figures.
+
+    close : bool
+        If True, close figures after saving.
+
+    verbose : bool
+        If True, print progress messages.
+
+    pst_file, model_dir, case, last_iter : optional
+        Inputs for automatic IES loading.
+
+    auto_load_ies : bool
+        If True, load prior/posterior observation ensembles automatically.
+
+    Returns
+    -------
+    results : dict
+        Dictionary with saved file paths and FDC data by observation group.
+    """
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # --------------------------------------------------------------
+    # Load IES outputs once, not once per observation group.
+    # --------------------------------------------------------------
+    if auto_load_ies:
+        ies = load_ies_observation_ensembles(
+            pst=pst,
+            pst_file=pst_file,
+            model_dir=model_dir,
+            case=case,
+            last_iter=last_iter,
+            build_pt_fill=False,
+        )
+
+        pst = ies["pst"]
+
+        if pr_oe is None:
+            pr_oe = ies["pr_oe"]
+
+        if pt_oe is None:
+            pt_oe = ies["pt_oe"]
+
+    if pst is None:
+        raise ValueError(
+            "pst is required. Provide pst directly or use auto_load_ies=True "
+            "with pst_file."
+        )
+
+    if obs_groups is None:
+        obs_groups = pst.nnz_obs_groups
+
+    saved_files = {}
+    fdc_data_by_group = {}
+
+    for obgnam in obs_groups:
+        try:
+            if aggregate_freq is None:
+                filename = out_dir / f"{prefix}_{obgnam}.png"
+            else:
+                filename = out_dir / f"{prefix}_{aggregate_freq}_{aggregate_func}_{obgnam}.png"
+
+            fig, ax, fdc_data = plot_fdc_ensemble(
+                pst=pst,
+                obgnam=obgnam,
+                pr_oe=pr_oe,
+                pt_oe=pt_oe,
+                width=width,
+                height=height,
+                logy=logy,
+                posterior_band=posterior_band,
+                posterior_band_quantiles=posterior_band_quantiles,
+                plot_prior_lines=plot_prior_lines,
+                plot_posterior_lines=plot_posterior_lines,
+                obs_dot=obs_dot,
+                obs_marker_size=obs_marker_size,
+                obs_line=obs_line,
+                aggregate_freq=aggregate_freq,
+                aggregate_func=aggregate_func,
+                ymin=ymin,
+                ymax=ymax,
+                title=title,
+                savefig=True,
+                filename=filename,
+                dpi=dpi,
+                show=show,
+                auto_load_ies=False,  # already loaded above
+            )
+
+            if close:
+                plt.close(fig)
+
+            saved_files[obgnam] = filename
+            fdc_data_by_group[obgnam] = fdc_data
+
+            if verbose:
+                print(f"Saved FDC: {obgnam}")
+
+        except Exception as err:
+            if verbose:
+                print(f"Skipped FDC {obgnam}: {err}")
+
+    return {
+        "files": saved_files,
+        "fdc_data": fdc_data_by_group,
+    }
+
 def animate_fdc_ensemble_by_realization(
     pst=None,
     obgnam=None,
@@ -4227,7 +5731,6 @@ def animate_fdc_ensemble_by_realization(
     obs_line=True,
     max_prior_realizations=None,
     max_posterior_realizations=None,
-    realizations_per_frame=5,
     aggregate_freq=None,
     aggregate_func="mean",
     ymin=None,
@@ -4260,14 +5763,9 @@ def animate_fdc_ensemble_by_realization(
 
     If animate_only_posterior=True, all prior FDCs are drawn statically first,
     and only posterior FDCs are animated.
-
-    realizations_per_frame controls how many FDC realizations are added at
-    each frame. For example, realizations_per_frame=5 adds five FDC lines per
-    frame.
     """
 
     from pathlib import Path
-    import math
 
     import numpy as np
     import pandas as pd
@@ -4276,8 +5774,6 @@ def animate_fdc_ensemble_by_realization(
 
     if obgnam is None:
         raise ValueError("obgnam must be provided.")
-
-    realizations_per_frame = _validate_realizations_per_frame(realizations_per_frame)
 
     # ------------------------------------------------------------------
     # Helper for making saved GIF non-looping.
@@ -4535,14 +6031,13 @@ def animate_fdc_ensemble_by_realization(
         posterior_reals = []
 
     if animate_only_posterior:
-        n_realization_steps = len(posterior_reals)
+        n_frames = len(posterior_reals)
     else:
-        n_realization_steps = max(len(prior_reals), len(posterior_reals))
+        n_frames = max(len(prior_reals), len(posterior_reals))
 
-    if n_realization_steps == 0:
+    if n_frames == 0:
         raise ValueError("No realizations available to animate.")
 
-    n_frames = math.ceil(n_realization_steps / realizations_per_frame)
     pause_frames = int(fps * pause_seconds)
     total_frames = n_frames + pause_frames
 
@@ -4841,47 +6336,46 @@ def animate_fdc_ensemble_by_realization(
             i = frame
             is_pause = False
 
-        start_idx = i * realizations_per_frame
-        end_idx = (i + 1) * realizations_per_frame
+        # Animate prior only if requested.
+        if not is_pause and animate_prior and i < len(prior_reals):
+            realization = prior_reals[i]
 
-        # Animate prior only if requested. Add a batch of FDCs per frame.
-        if not is_pause and animate_prior:
-            for realization in prior_reals[start_idx:end_idx]:
-                x, y = _calculate_fdc(_get_realization_values(pr_oe, realization))
+            x, y = _calculate_fdc(_get_realization_values(pr_oe, realization))
 
-                if x is not None:
-                    ln, = ax.plot(
-                        x,
-                        y,
-                        color="0.5",
-                        lw=0.5,
-                        alpha=0.30,
-                        zorder=1,
-                    )
-                    artists.append(ln)
+            if x is not None:
+                ln, = ax.plot(
+                    x,
+                    y,
+                    color="0.5",
+                    lw=0.5,
+                    alpha=0.30,
+                    zorder=1,
+                )
+                artists.append(ln)
 
-        # Animate posterior. Add a batch of FDCs per frame.
-        if not is_pause and animate_posterior:
-            for realization in posterior_reals[start_idx:end_idx]:
-                x, y = _calculate_fdc(_get_realization_values(pt_oe, realization))
+        # Animate posterior.
+        if not is_pause and animate_posterior and i < len(posterior_reals):
+            realization = posterior_reals[i]
 
-                if x is not None:
-                    ln, = ax.plot(
-                        x,
-                        y,
-                        color="b",
-                        lw=0.5,
-                        alpha=0.40,
-                        zorder=3,
-                    )
-                    artists.append(ln)
+            x, y = _calculate_fdc(_get_realization_values(pt_oe, realization))
+
+            if x is not None:
+                ln, = ax.plot(
+                    x,
+                    y,
+                    color="b",
+                    lw=0.5,
+                    alpha=0.40,
+                    zorder=3,
+                )
+                artists.append(ln)
 
         if animate_only_posterior:
             n_prior = len(prior_reals) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
         else:
-            n_prior = min(end_idx, len(prior_reals)) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_prior = min(i + 1, len(prior_reals)) if has_prior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
 
         frame_text.set_text(
             f"Prior realizations: {n_prior}\n"
@@ -4972,12 +6466,9 @@ def animate_parameter_ensemble_by_realization(
     show_prior=True,
     show_posterior=True,
     animate_only_posterior=True,
-    realizations_per_frame=5,
     prior_label="Prior",
     posterior_label="Posterior",
     bestcand_label="Best candidate",
-    prior_color="0.70",
-    posterior_color="tab:blue",
     save_path=None,
     writer="pillow",
     fps=8,
@@ -4994,16 +6485,128 @@ def animate_parameter_ensemble_by_realization(
     verbose=True,
 ):
     """
-    Animate prior/posterior parameter ensemble histograms by realization.
+    Animate prior/posterior parameter ensemble histograms by adding
+    posterior realizations one by one.
 
-    Fixed version:
-    - Does not call ax.hist() during animation frames.
-    - Precomputes cumulative histogram counts.
-    - Creates bars once and updates bar heights.
-    - Uses fixed colors so colors do not change during animation.
-    - Supports realizations_per_frame so each frame can add several
-      realizations, e.g., 5 posterior members per frame.
+    This function is designed for PESTPP-IES parameter ensembles.
+
+    Main behavior
+    -------------
+    If animate_only_posterior=True:
+        1. Draw prior histograms statically.
+        2. Animate posterior histograms by adding posterior realizations
+           one by one.
+
+    If animate_only_posterior=False:
+        1. Animate prior and posterior histograms together realization by
+           realization.
+
+    Parameters
+    ----------
+    pst : pyemu.Pst
+        PEST control file object.
+
+    pr_pe : pandas.DataFrame or pyemu.ParameterEnsemble, optional
+        Prior parameter ensemble. Rows are realizations and columns are
+        parameter names.
+
+    pt_pe : pandas.DataFrame or pyemu.ParameterEnsemble, optional
+        Posterior parameter ensemble.
+
+    sel_pars : list-like or pandas.DataFrame, optional
+        Selected parameters to animate.
+
+        If list-like:
+            ["cn2", "esco", "alpha"]
+
+        If DataFrame:
+            Must contain "parnme". It can optionally contain:
+            parlbnd, parubnd, offset.
+
+    width, height : float, default 7, 5
+        Figure size in inches.
+
+    ncols : int, default 3
+        Number of subplot columns.
+
+    nbins : int, default 20
+        Number of histogram bins.
+
+    bestcand : str, optional
+        Best candidate realization name. Used only with parobj_file.
+
+    parobj_file : str or pathlib.Path, optional
+        CSV file containing parameter values for candidate realizations.
+        It should contain a "real_name" column.
+
+    wd : str or pathlib.Path, optional
+        Working directory for parobj_file if parobj_file is relative.
+
+    show_prior : bool, default True
+        If True, show prior ensemble histograms.
+
+    show_posterior : bool, default True
+        If True, animate/show posterior ensemble histograms.
+
+    animate_only_posterior : bool, default True
+        If True, draw all prior histograms first and animate only posterior
+        histograms. This is usually the best visualization for IES updates.
+
+    prior_label, posterior_label, bestcand_label : str
+        Legend labels.
+
+    save_path : str or pathlib.Path, optional
+        Output animation path. Use ".gif" with writer="pillow" or ".mp4"
+        with writer="ffmpeg".
+
+    writer : {"pillow", "ffmpeg"}, default "pillow"
+        Animation writer.
+
+    fps : int, default 8
+        Frames per second for saved animation.
+
+    interval : int, default 250
+        Delay between frames in milliseconds for interactive display.
+
+    pause_seconds : float, default 2.0
+        Extra pause at the final fully built posterior histogram state.
+        This is implemented by adding duplicate final frames.
+
+    repeat : bool, default True
+        If True, repeat the animation. For saved GIFs with PillowWriter,
+        repeat=False is handled by GIF post-processing.
+
+    dpi : int, default 150
+        Resolution of saved animation and optional first/last figures.
+
+    show : bool, default False
+        If True, display the animation figure.
+
+    close : bool, default False
+        If True, close the figure after saving.
+
+    save_first_last_figures : bool, default False
+        If True, save PNG snapshots of the first and last animation states.
+
+    first_last_dir : str or pathlib.Path, optional
+        Directory for first/last static figures. If None, the animation output
+        directory is used.
+
+    first_fig_name, last_fig_name : str, optional
+        File names for first and last static figures.
+
+    Returns
+    -------
+    anim : matplotlib.animation.FuncAnimation
+        Animation object.
+
+    fig : matplotlib.figure.Figure
+        Figure object.
+
+    axes : numpy.ndarray
+        Array of subplot axes.
     """
+
 
     from pathlib import Path
     import math
@@ -5011,13 +6614,41 @@ def animate_parameter_ensemble_by_realization(
     import pandas as pd
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
-    from matplotlib.patches import Patch
-    from matplotlib.lines import Line2D
+
 
     def _log(message):
         if verbose:
             print(message, flush=True)
 
+    # ------------------------------------------------------------------
+    # Optional automatic loading for PESTPP-IES parameter ensembles.
+    # ------------------------------------------------------------------
+    if auto_load_ies:
+        ies = load_ies_parameter_ensembles(
+            pst=pst,
+            pst_file=pst_file,
+            model_dir=model_dir,
+            case=case,
+            last_iter=last_iter,
+        )
+
+        pst = ies["pst"]
+
+        if pr_pe is None:
+            pr_pe = ies["pr_pe"]
+
+        if pt_pe is None:
+            pt_pe = ies["pt_pe"]
+
+    if pst is None:
+        raise ValueError(
+            "pst is required. Provide pst directly or use auto_load_ies=True "
+            "with pst_file."
+        )
+
+    # ------------------------------------------------------------------
+    # Helper for making saved GIF non-looping.
+    # ------------------------------------------------------------------
     def _make_gif_nonlooping(gif_path):
         try:
             from PIL import Image, ImageSequence
@@ -5035,7 +6666,6 @@ def animate_parameter_ensemble_by_realization(
         if not frames:
             return
 
-        # Force duration from fps.
         frame_duration = int(1000 / fps)
 
         frames[0].save(
@@ -5046,79 +6676,8 @@ def animate_parameter_ensemble_by_realization(
             loop=1,
         )
 
-    def _values_to_cumulative_counts(values, bin_edges):
-        """
-        Convert one value per realization to cumulative histogram counts.
-
-        Output shape:
-            n_realizations x n_bins
-        """
-
-        values = pd.to_numeric(
-            pd.Series(values),
-            errors="coerce",
-        ).to_numpy(dtype=float)
-
-        n_reals = len(values)
-        n_bins = len(bin_edges) - 1
-
-        per_real_counts = np.zeros((n_reals, n_bins), dtype=float)
-
-        for i, val in enumerate(values):
-            if not np.isfinite(val):
-                continue
-
-            bin_idx = np.searchsorted(bin_edges, val, side="right") - 1
-
-            # Include value exactly equal to rightmost edge.
-            if bin_idx == n_bins and np.isclose(val, bin_edges[-1]):
-                bin_idx = n_bins - 1
-
-            if 0 <= bin_idx < n_bins:
-                per_real_counts[i, bin_idx] = 1.0
-
-        return np.cumsum(per_real_counts, axis=0)
-
-    _log("Preparing parameter ensemble animation...")
-
-    realizations_per_frame = _validate_realizations_per_frame(realizations_per_frame)
-
     # ------------------------------------------------------------------
-    # Optional automatic loading for PESTPP-IES parameter ensembles.
-    # ------------------------------------------------------------------
-    if auto_load_ies:
-        _log("Loading IES parameter ensembles...")
-
-        ies = load_ies_parameter_ensembles(
-            pst=pst,
-            pst_file=pst_file,
-            model_dir=model_dir,
-            case=case,
-            last_iter=last_iter,
-        )
-
-        pst = ies["pst"]
-
-        if pr_pe is None:
-            pr_pe = ies["pr_pe"]
-
-        if pt_pe is None:
-            pt_pe = ies["pt_pe"]
-
-        _log(
-            f"Loaded parameter ensembles: "
-            f"prior={ies['prior_par_file'].name}, "
-            f"posterior={ies['posterior_par_file'].name}"
-        )
-
-    if pst is None:
-        raise ValueError(
-            "pst is required. Provide pst directly or use auto_load_ies=True "
-            "with pst_file."
-        )
-
-    # ------------------------------------------------------------------
-    # Convert ensembles.
+    # Convert pyEMU ensemble-like objects to pandas DataFrames.
     # ------------------------------------------------------------------
     pr_pe = _ensemble_to_dataframe(pr_pe, name="pr_pe")
     pt_pe = _ensemble_to_dataframe(pt_pe, name="pt_pe")
@@ -5137,7 +6696,9 @@ def animate_parameter_ensemble_by_realization(
     animate_prior = has_prior and not animate_only_posterior
     animate_posterior = has_posterior
 
-    # Normalize parameter names in ensembles.
+    # ------------------------------------------------------------------
+    # Normalize ensemble column names to lowercase.
+    # ------------------------------------------------------------------
     if has_prior:
         pr_pe = pr_pe.copy()
         pr_pe.columns = [str(c).lower() for c in pr_pe.columns]
@@ -5149,9 +6710,8 @@ def animate_parameter_ensemble_by_realization(
     # ------------------------------------------------------------------
     # Prepare pst.parameter_data safely.
     # ------------------------------------------------------------------
-    _log("Preparing parameter metadata...")
-
     par_data_raw = pst.parameter_data.copy()
+
     index_parnmes = par_data_raw.index.astype(str)
 
     par_data_raw.index.name = None
@@ -5165,7 +6725,7 @@ def animate_parameter_ensemble_by_realization(
     par_data["parnme"] = par_data["parnme"].str.lower()
 
     required_cols = ["parnme", "parlbnd", "parubnd"]
-    missing_cols = [c for c in required_cols if c not in par_data.columns]
+    missing_cols = [col for col in required_cols if col not in par_data.columns]
 
     if missing_cols:
         raise KeyError(
@@ -5210,6 +6770,7 @@ def animate_parameter_ensemble_by_realization(
 
     elif isinstance(sel_pars, pd.DataFrame):
         sel_pars_df = sel_pars.copy()
+
         sel_pars_df.index.name = None
         sel_pars_df = sel_pars_df.reset_index(drop=True)
 
@@ -5261,7 +6822,7 @@ def animate_parameter_ensemble_by_realization(
     ]
 
     if missing_from_ensemble:
-        _log(
+        print(
             "Skipped parameter(s) not found in parameter ensembles: "
             + ", ".join(missing_from_ensemble)
         )
@@ -5299,10 +6860,8 @@ def animate_parameter_ensemble_by_realization(
         errors="coerce",
     ).fillna(0.0)
 
-    _log(f"Selected {len(sel_pars_df)} parameter(s).")
-
     # ------------------------------------------------------------------
-    # Best-candidate file.
+    # Read best-candidate parameter object file once, if requested.
     # ------------------------------------------------------------------
     bestcand_df = None
 
@@ -5311,8 +6870,6 @@ def animate_parameter_ensemble_by_realization(
 
         if not parobj_path.is_absolute() and wd is not None:
             parobj_path = Path(wd) / parobj_path
-
-        _log(f"Loading best-candidate parameter file: {parobj_path}")
 
         bestcand_df = pd.read_csv(parobj_path)
 
@@ -5328,31 +6885,24 @@ def animate_parameter_ensemble_by_realization(
         ]
 
     # ------------------------------------------------------------------
-    # Realizations.
+    # Select realizations.
     # ------------------------------------------------------------------
     prior_reals = list(pr_pe.index) if has_prior else []
     posterior_reals = list(pt_pe.index) if has_posterior else []
 
     if animate_only_posterior:
-        n_realization_steps = len(posterior_reals)
+        n_frames = len(posterior_reals)
     else:
-        n_realization_steps = max(len(prior_reals), len(posterior_reals))
+        n_frames = max(len(prior_reals), len(posterior_reals))
 
-    if n_realization_steps == 0:
+    if n_frames == 0:
         raise ValueError("No realizations available to animate.")
 
-    n_frames = math.ceil(n_realization_steps / realizations_per_frame)
     pause_frames = int(fps * pause_seconds)
     total_frames = n_frames + pause_frames
 
-    _log(
-        f"Animation frames: {n_frames} frames "
-        f"({realizations_per_frame} realization(s) per frame) "
-        f"+ {pause_frames} pause frames = {total_frames} total frames."
-    )
-
     # ------------------------------------------------------------------
-    # Figure layout.
+    # Create subplot layout.
     # ------------------------------------------------------------------
     npars = len(sel_pars_df)
     nrows = math.ceil(npars / ncols)
@@ -5365,10 +6915,8 @@ def animate_parameter_ensemble_by_realization(
     )
 
     # ------------------------------------------------------------------
-    # Precompute histograms and create bars once.
+    # Prepare per-parameter plotting metadata.
     # ------------------------------------------------------------------
-    _log("Precomputing histogram counts...")
-
     par_plot_info = []
 
     for i, ax in enumerate(axes.flat):
@@ -5389,122 +6937,41 @@ def animate_parameter_ensemble_by_realization(
             nbins + 1,
         )
 
-        bin_lefts = bin_edges[:-1]
-        bin_widths = np.diff(bin_edges)
-
-        prior_full_counts = np.zeros(nbins, dtype=float)
-        posterior_full_counts = np.zeros(nbins, dtype=float)
-
-        prior_cum_counts = None
-        posterior_cum_counts = None
-
-        if has_prior and parnme in pr_pe.columns:
-            prior_values = (
-                pd.to_numeric(pr_pe.loc[prior_reals, parnme], errors="coerce")
-                .to_numpy(dtype=float)
-                + offset
-            )
-
-            prior_full_counts, _ = np.histogram(prior_values, bins=bin_edges)
-
-            if animate_prior:
-                prior_cum_counts = _values_to_cumulative_counts(
-                    prior_values,
-                    bin_edges,
-                )
-
-        if has_posterior and parnme in pt_pe.columns:
-            posterior_values = (
-                pd.to_numeric(pt_pe.loc[posterior_reals, parnme], errors="coerce")
-                .to_numpy(dtype=float)
-                + offset
-            )
-
-            posterior_full_counts, _ = np.histogram(
-                posterior_values,
-                bins=bin_edges,
-            )
-
-            if animate_posterior:
-                posterior_cum_counts = _values_to_cumulative_counts(
-                    posterior_values,
-                    bin_edges,
-                )
-
-        max_count = max(
-            1,
-            int(np.nanmax(prior_full_counts)) if prior_full_counts.size else 1,
-            int(np.nanmax(posterior_full_counts)) if posterior_full_counts.size else 1,
-        )
-
         # --------------------------------------------------------------
-        # Static prior: full prior distribution shown from beginning.
+        # Static prior histogram if animate_only_posterior=True.
         # --------------------------------------------------------------
         if animate_only_posterior and has_prior and parnme in pr_pe.columns:
-            ax.bar(
-                bin_lefts,
-                prior_full_counts,
-                width=bin_widths,
-                align="edge",
-                color=prior_color,
-                alpha=0.65,
-                edgecolor="none",
-                zorder=1,
+            prior_vals = pr_pe[parnme].dropna().to_numpy(dtype=float) + offset
+
+            ax.hist(
+                prior_vals,
+                bins=bin_edges,
+                color="gray",
+                alpha=0.5,
+                density=False,
+                label=prior_label if i == 0 else None,
             )
 
         # --------------------------------------------------------------
-        # Animated prior: starts at zero and grows.
+        # Optional best-candidate vertical line.
         # --------------------------------------------------------------
-        animated_prior_bars = None
+        if bestcand_df is not None:
+            if parnme in bestcand_df.columns:
+                match = bestcand_df.loc[
+                    bestcand_df["real_name"] == bestcand,
+                    parnme,
+                ]
 
-        if animate_prior and has_prior and parnme in pr_pe.columns:
-            animated_prior_bars = ax.bar(
-                bin_lefts,
-                np.zeros(nbins),
-                width=bin_widths,
-                align="edge",
-                color=prior_color,
-                alpha=0.65,
-                edgecolor="none",
-                zorder=1,
-            )
+                if not match.empty:
+                    x_best = float(match.iloc[0]) + offset
 
-        # --------------------------------------------------------------
-        # Animated posterior: starts at zero and grows.
-        # --------------------------------------------------------------
-        animated_posterior_bars = None
-
-        if animate_posterior and has_posterior and parnme in pt_pe.columns:
-            animated_posterior_bars = ax.bar(
-                bin_lefts,
-                np.zeros(nbins),
-                width=bin_widths,
-                align="edge",
-                color=posterior_color,
-                alpha=0.65,
-                edgecolor="none",
-                zorder=2,
-            )
-
-        # --------------------------------------------------------------
-        # Best-candidate vertical line.
-        # --------------------------------------------------------------
-        if bestcand_df is not None and parnme in bestcand_df.columns:
-            match = bestcand_df.loc[
-                bestcand_df["real_name"] == bestcand,
-                parnme,
-            ]
-
-            if not match.empty:
-                x_best = float(match.iloc[0]) + offset
-
-                ax.axvline(
-                    x=x_best,
-                    color="red",
-                    linestyle="--",
-                    alpha=0.7,
-                    zorder=3,
-                )
+                    ax.axvline(
+                        x=x_best,
+                        color="red",
+                        linestyle="--",
+                        alpha=0.7,
+                        label=bestcand_label if i == 0 else None,
+                    )
 
         ax.set_title(
             parnme,
@@ -5518,14 +6985,30 @@ def animate_parameter_ensemble_by_realization(
         ax.tick_params(axis="y", labelsize=8)
 
         ax.set_xlim(bin_edges[0], bin_edges[-1])
+
+        # Pre-compute max y-limit from full selected data.
+        max_count = 1
+
+        if has_prior and parnme in pr_pe.columns:
+            vals = pr_pe[parnme].dropna().to_numpy(dtype=float) + offset
+            counts, _ = np.histogram(vals, bins=bin_edges)
+            if counts.size > 0:
+                max_count = max(max_count, int(counts.max()))
+
+        if has_posterior and parnme in pt_pe.columns:
+            vals = pt_pe[parnme].dropna().to_numpy(dtype=float) + offset
+            counts, _ = np.histogram(vals, bins=bin_edges)
+            if counts.size > 0:
+                max_count = max(max_count, int(counts.max()))
+
         ax.set_ylim(0, max_count * 1.15)
 
         par_plot_info.append(
             {
-                "prior_cum_counts": prior_cum_counts,
-                "posterior_cum_counts": posterior_cum_counts,
-                "animated_prior_bars": animated_prior_bars,
-                "animated_posterior_bars": animated_posterior_bars,
+                "ax": ax,
+                "parnme": parnme,
+                "offset": offset,
+                "bin_edges": bin_edges,
             }
         )
 
@@ -5533,45 +7016,38 @@ def animate_parameter_ensemble_by_realization(
     fig.supylabel("Frequency", fontsize=10)
 
     # ------------------------------------------------------------------
-    # Legend.
+    # Dummy legend artists.
     # ------------------------------------------------------------------
-    legend_handles = []
+    first_axis = axes.flat[0]
 
-    if has_prior:
-        legend_handles.append(
-            Patch(
-                facecolor=prior_color,
-                alpha=0.65,
-                edgecolor="none",
-                label=prior_label,
-            )
+    if animate_prior:
+        first_axis.hist(
+            [],
+            bins=np.linspace(0, 1, 2),
+            color="gray",
+            alpha=0.5,
+            label=prior_label,
         )
 
     if has_posterior:
-        legend_handles.append(
-            Patch(
-                facecolor=posterior_color,
-                alpha=0.65,
-                edgecolor="none",
-                label=posterior_label,
-            )
+        first_axis.hist(
+            [],
+            bins=np.linspace(0, 1, 2),
+            alpha=0.5,
+            label=posterior_label,
         )
 
-    if bestcand_df is not None:
-        legend_handles.append(
-            Line2D(
-                [0],
-                [0],
-                color="red",
-                linestyle="--",
-                alpha=0.7,
-                label=bestcand_label,
-            )
-        )
+    handles, labels = first_axis.get_legend_handles_labels()
 
-    if legend_handles:
-        axes.flat[0].legend(
-            handles=legend_handles,
+    if labels:
+        unique = {}
+        for handle, label in zip(handles, labels):
+            if label not in unique:
+                unique[label] = handle
+
+        first_axis.legend(
+            unique.values(),
+            unique.keys(),
             fontsize=8,
         )
 
@@ -5595,7 +7071,7 @@ def animate_parameter_ensemble_by_realization(
     plt.tight_layout()
 
     # ------------------------------------------------------------------
-    # First/last static figure paths.
+    # Optional first/last static figure paths.
     # ------------------------------------------------------------------
     if save_first_last_figures:
         if first_last_dir is None:
@@ -5636,36 +7112,60 @@ def animate_parameter_ensemble_by_realization(
             is_pause = False
 
         for info in par_plot_info:
-            prior_cum_counts = info["prior_cum_counts"]
-            posterior_cum_counts = info["posterior_cum_counts"]
+            ax = info["ax"]
+            parnme = info["parnme"]
+            offset = info["offset"]
+            bin_edges = info["bin_edges"]
 
-            animated_prior_bars = info["animated_prior_bars"]
-            animated_posterior_bars = info["animated_posterior_bars"]
+            # ----------------------------------------------------------
+            # Animate prior if requested.
+            # ----------------------------------------------------------
+            if not is_pause and animate_prior and i < len(prior_reals):
+                if parnme in pr_pe.columns:
+                    vals = (
+                        pr_pe.loc[prior_reals[: i + 1], parnme]
+                        .dropna()
+                        .to_numpy(dtype=float)
+                        + offset
+                    )
 
-            if animated_prior_bars is not None and prior_cum_counts is not None:
-                idx = min((i + 1) * realizations_per_frame - 1, prior_cum_counts.shape[0] - 1)
-                counts = prior_cum_counts[idx, :]
+                    patches = ax.hist(
+                        vals,
+                        bins=bin_edges,
+                        color="gray",
+                        alpha=0.5,
+                        density=False,
+                    )[2]
 
-                for patch, height in zip(animated_prior_bars, counts):
-                    patch.set_height(height)
-                    artists.append(patch)
+                    artists.extend(patches)
 
-            if animated_posterior_bars is not None and posterior_cum_counts is not None:
-                idx = min((i + 1) * realizations_per_frame - 1, posterior_cum_counts.shape[0] - 1)
-                counts = posterior_cum_counts[idx, :]
+            # ----------------------------------------------------------
+            # Animate posterior.
+            # ----------------------------------------------------------
+            if animate_posterior:
+                if parnme in pt_pe.columns:
+                    vals = (
+                        pt_pe.loc[posterior_reals[: i + 1], parnme]
+                        .dropna()
+                        .to_numpy(dtype=float)
+                        + offset
+                    )
 
-                for patch, height in zip(animated_posterior_bars, counts):
-                    patch.set_height(height)
-                    artists.append(patch)
+                    patches = ax.hist(
+                        vals,
+                        bins=bin_edges,
+                        alpha=0.5,
+                        density=False,
+                    )[2]
 
-        end_idx = (i + 1) * realizations_per_frame
+                    artists.extend(patches)
 
         if animate_only_posterior:
             n_prior = len(prior_reals) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
         else:
-            n_prior = min(end_idx, len(prior_reals)) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_prior = min(i + 1, len(prior_reals)) if has_prior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
 
         frame_text.set_text(
             f"Prior realizations: {n_prior}\n"
@@ -5705,47 +7205,22 @@ def animate_parameter_ensemble_by_realization(
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        def _progress_callback(current_frame, total_frames_to_save):
-            if verbose:
-                print(
-                    f"Saving frame {current_frame + 1}/{total_frames_to_save}",
-                    end="\r",
-                    flush=True,
-                )
-
         if writer.lower() == "pillow":
-            _log(f"Saving GIF to: {save_path}")
-
             anim.save(
                 save_path,
                 writer=PillowWriter(fps=fps),
                 dpi=dpi,
-                progress_callback=_progress_callback,
             )
 
-            if verbose:
-                print()
-
             if repeat is False:
-                _log("Post-processing GIF repeat setting...")
                 _make_gif_nonlooping(save_path)
 
-            _log("Done saving GIF.")
-
         elif writer.lower() == "ffmpeg":
-            _log(f"Saving MP4 to: {save_path}")
-
             anim.save(
                 save_path,
                 writer=FFMpegWriter(fps=fps),
                 dpi=dpi,
-                progress_callback=_progress_callback,
             )
-
-            if verbose:
-                print()
-
-            _log("Done saving MP4.")
 
         else:
             raise ValueError("writer must be either 'pillow' or 'ffmpeg'.")
@@ -5757,6 +7232,9 @@ def animate_parameter_ensemble_by_realization(
         plt.close(fig)
 
     return anim, fig, axes
+
+
+
 
 
 if __name__ == "__main__":
@@ -6017,51 +7495,3 @@ if __name__ == "__main__":
     # )
 
     # plt.close(fig)
-# ------------------------------------------------------------------------------
-# Example animation calls with batched realization updates
-# ------------------------------------------------------------------------------
-# Use realizations_per_frame=5 to add five realizations at each animation frame.
-# This reduces the number of frames by about five times compared with adding
-# one realization per frame.
-#
-# anim, fig, ax = animate_tseries_ensemble_by_realization(
-#     pst_file=model_dir / "pecos_rw_ies.pst",
-#     model_dir=model_dir,
-#     case="pecos_rw_ies",
-#     last_iter=4,
-#     auto_load_ies=True,
-#     obgnam=pst.nnz_obs_groups[0],
-#     realizations_per_frame=5,
-#     fps=8,
-#     pause_seconds=2.0,
-#     repeat=False,
-#     save_path=model_dir / "figures" / "animations" / "tseries_build.gif",
-# )
-#
-# anim, fig, ax = animate_fdc_ensemble_by_realization(
-#     pst_file=model_dir / "pecos_rw_ies.pst",
-#     model_dir=model_dir,
-#     case="pecos_rw_ies",
-#     last_iter=4,
-#     auto_load_ies=True,
-#     obgnam=pst.nnz_obs_groups[0],
-#     realizations_per_frame=5,
-#     fps=8,
-#     pause_seconds=2.0,
-#     repeat=False,
-#     save_path=model_dir / "figures" / "animations" / "fdc_build.gif",
-# )
-#
-# anim, fig, axes = animate_parameter_ensemble_by_realization(
-#     pst_file=model_dir / "pecos_rw_ies.pst",
-#     model_dir=model_dir,
-#     case="pecos_rw_ies",
-#     last_iter=4,
-#     auto_load_ies=True,
-#     sel_pars=["chl"],
-#     realizations_per_frame=5,
-#     fps=8,
-#     pause_seconds=2.0,
-#     repeat=False,
-#     save_path=model_dir / "figures" / "animations" / "parameter_ensemble_build.gif",
-# )
