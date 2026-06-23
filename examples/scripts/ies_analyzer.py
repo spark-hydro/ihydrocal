@@ -18,8 +18,8 @@ import pandas as pd
 # --------------------------------------------------------------
 
 model_dir = Path(
-    r"C:\Users\spark\Documents\projects\watersheds\pecos\calibration_v03\ihydrocal_workspace\pecos_rw_ies"
-    # r"/home/spark/Documents/projects/watersheds/pecos/calibration_v03/ihydrocal_workspace/pecos_rw_ies" # linux
+    # r"C:\Users\spark\Documents\projects\watersheds\pecos\calibration_v03\ihydrocal_workspace\pecos_rw_ies"
+    r"/home/spark/Documents/projects/watersheds/pecos/calibration_v03/ihydrocal_workspace/pecos_rw_ies" # linux
 
 )
 
@@ -162,7 +162,7 @@ pst_file = model_dir / "pecos_rw_ies.pst"
 #     fps=8,
 #     pause_seconds=2.0,
 #     repeat=False,
-#     save_path=model_dir / "figures" / "animations" / "parameter_ensemble_build.gif",
+#     save_path=model_d2ir / "figures" / "animations" / "parameter_ensemble_build.gif",
 #     writer="pillow",
 #     dpi=150,
 # )
