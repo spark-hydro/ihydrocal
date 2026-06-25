@@ -15,6 +15,14 @@ from .diagnostics import (
     plot_discharge_diagnostics,
     plot_normalized_response
 )
+from .swat_modflow import (
+    plot_swatmf_streamflow,
+    plot_swatmf_fdc,
+    plot_swatmf_dtw,
+    plot_swatmf_water_balance,
+    plot_swatmf_performance_dashboard,
+    plot_swatmf_performance_dashboard_subfigures,
+)
 
 from .pest_sen import plot_pestpp_sen_morris
 
@@ -45,6 +53,12 @@ __all__ = [
     "plot_flow_duration_curve",
     "plot_discharge_diagnostics",
     "plot_normalized_response",
+    "plot_swatmf_streamflow",
+    "plot_swatmf_fdc",
+    "plot_swatmf_dtw",
+    "plot_swatmf_water_balance",
+    "plot_swatmf_performance_dashboard",
+    "plot_swatmf_performance_dashboard_subfigures",
     "plot_pestpp_sen_morris",
     "plot_ies_phi_evolution",
     "plot_ies_phi_distribution",

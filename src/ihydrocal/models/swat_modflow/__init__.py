@@ -1,3 +1,4 @@
 from .model import SWATModflowModel
+from .io import SWATModflowIO
 
-__all__ = ["SWATModflowModel"]
+__all__ = ["SWATModflowModel", "SWATModflowIO"]
