@@ -130,8 +130,8 @@ def pbias(obs, sim):
     PBIAS indicates whether the model tends to overestimate or underestimate.
 
     In this convention:
-        PBIAS > 0 means simulated values are higher than observed values.
-        PBIAS < 0 means simulated values are lower than observed values.
+        PBIAS < 0 means simulated values are higher than observed values.
+        PBIAS > 0 means simulated values are lower than observed values.
 
     Parameters
     ----------
@@ -156,7 +156,7 @@ def pbias(obs, sim):
     if obs_sum == 0:
         return np.nan
 
-    return 100 * np.sum(sim - obs) / obs_sum
+    return 100 * np.sum(obs - sim) / obs_sum
 
 
 def kge(obs, sim):
