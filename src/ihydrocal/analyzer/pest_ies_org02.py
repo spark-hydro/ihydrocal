@@ -9,8 +9,6 @@ Key cleanup:
     animate_tseries_ensemble()
     animate_tseries_ensemble_by_realization_org()
 - Kept the latest realization-based time-series, FDC, and parameter animations.
-- Added realizations_per_frame to animation functions so each frame can add
-  multiple realizations, e.g., 5 realizations per frame for faster GIF/MP4 output.
 """
 
 import os
@@ -3423,26 +3421,6 @@ def plot_ies_fdc_ensemble_by_group(
     }
 
 
-
-def _validate_realizations_per_frame(realizations_per_frame):
-    """
-    Validate and normalize the number of realizations added per animation frame.
-
-    This is useful for large PESTPP-IES ensembles because adding one
-    realization per frame can create very slow GIF/MP4 files. For example,
-    realizations_per_frame=5 adds five prior/posterior realizations during
-    each animation update frame.
-    """
-    try:
-        realizations_per_frame = int(realizations_per_frame)
-    except Exception as err:
-        raise ValueError("realizations_per_frame must be a positive integer.") from err
-
-    if realizations_per_frame < 1:
-        raise ValueError("realizations_per_frame must be >= 1.")
-
-    return realizations_per_frame
-
 def animate_tseries_ensemble_by_realization(
     pst=None,
     obgnam=None,
@@ -3468,7 +3446,6 @@ def animate_tseries_ensemble_by_realization(
     auto_build_pt_fill=True,
     max_prior_realizations=None,
     max_posterior_realizations=None,
-    realizations_per_frame=5,
     show_prior=True,
     show_posterior=True,
     show_observed=True,
@@ -3502,13 +3479,9 @@ def animate_tseries_ensemble_by_realization(
 
     If animate_only_posterior=True, all prior realizations are drawn
     statically first, and only posterior realizations are animated.
-
-    realizations_per_frame controls how many realizations are added at each
-    frame. For example, realizations_per_frame=5 adds five lines per frame.
     """
 
     from pathlib import Path
-    import math
 
     import numpy as np
     import pandas as pd
@@ -3518,8 +3491,6 @@ def animate_tseries_ensemble_by_realization(
 
     if obgnam is None:
         raise ValueError("obgnam must be provided.")
-
-    realizations_per_frame = _validate_realizations_per_frame(realizations_per_frame)
 
     # ------------------------------------------------------------------
     # Helper for making saved GIF non-looping.
@@ -3765,14 +3736,13 @@ def animate_tseries_ensemble_by_realization(
         posterior_reals = []
 
     if animate_only_posterior:
-        n_realization_steps = len(posterior_reals)
+        n_frames = len(posterior_reals)
     else:
-        n_realization_steps = max(len(prior_reals), len(posterior_reals))
+        n_frames = max(len(prior_reals), len(posterior_reals))
 
-    if n_realization_steps == 0:
+    if n_frames == 0:
         raise ValueError("No realizations available to animate.")
 
-    n_frames = math.ceil(n_realization_steps / realizations_per_frame)
     pause_frames = int(fps * pause_seconds)
     total_frames = n_frames + pause_frames
 
@@ -4090,49 +4060,48 @@ def animate_tseries_ensemble_by_realization(
             i = frame
             is_pause = False
 
-        start_idx = i * realizations_per_frame
-        end_idx = (i + 1) * realizations_per_frame
+        # Animate prior only if requested.
+        if not is_pause and animate_prior and i < len(prior_reals):
+            realization = prior_reals[i]
 
-        # Animate prior only if requested. Add a batch of realizations per frame.
-        if not is_pause and animate_prior:
-            for realization in prior_reals[start_idx:end_idx]:
-                y = pr_oe.loc[realization, onames].to_numpy(dtype=float)
+            y = pr_oe.loc[realization, onames].to_numpy(dtype=float)
 
-                ln, = ax.plot(
-                    tvals,
-                    y,
-                    color="0.5",
-                    lw=0.5,
-                    alpha=0.45,
-                    zorder=1,
-                )
+            ln, = ax.plot(
+                tvals,
+                y,
+                color="0.5",
+                lw=0.5,
+                alpha=0.45,
+                zorder=1,
+            )
 
-                plotted_artists["prior"].append(ln)
-                artists.append(ln)
+            plotted_artists["prior"].append(ln)
+            artists.append(ln)
 
-        # Animate posterior. Add a batch of realizations per frame.
-        if not is_pause and animate_posterior:
-            for realization in posterior_reals[start_idx:end_idx]:
-                y = pt_oe.loc[realization, onames].to_numpy(dtype=float)
+        # Animate posterior.
+        if not is_pause and animate_posterior and i < len(posterior_reals):
+            realization = posterior_reals[i]
 
-                ln, = ax.plot(
-                    tvals,
-                    y,
-                    color="b",
-                    lw=0.5,
-                    alpha=0.40,
-                    zorder=3,
-                )
+            y = pt_oe.loc[realization, onames].to_numpy(dtype=float)
 
-                plotted_artists["posterior"].append(ln)
-                artists.append(ln)
+            ln, = ax.plot(
+                tvals,
+                y,
+                color="b",
+                lw=0.5,
+                alpha=0.40,
+                zorder=3,
+            )
+
+            plotted_artists["posterior"].append(ln)
+            artists.append(ln)
 
         if animate_only_posterior:
             n_prior = len(prior_reals) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
         else:
-            n_prior = min(end_idx, len(prior_reals)) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_prior = min(i + 1, len(prior_reals)) if has_prior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
 
         frame_text.set_text(
             f"Prior realizations: {n_prior}\n"
@@ -4227,7 +4196,6 @@ def animate_fdc_ensemble_by_realization(
     obs_line=True,
     max_prior_realizations=None,
     max_posterior_realizations=None,
-    realizations_per_frame=5,
     aggregate_freq=None,
     aggregate_func="mean",
     ymin=None,
@@ -4260,14 +4228,9 @@ def animate_fdc_ensemble_by_realization(
 
     If animate_only_posterior=True, all prior FDCs are drawn statically first,
     and only posterior FDCs are animated.
-
-    realizations_per_frame controls how many FDC realizations are added at
-    each frame. For example, realizations_per_frame=5 adds five FDC lines per
-    frame.
     """
 
     from pathlib import Path
-    import math
 
     import numpy as np
     import pandas as pd
@@ -4276,8 +4239,6 @@ def animate_fdc_ensemble_by_realization(
 
     if obgnam is None:
         raise ValueError("obgnam must be provided.")
-
-    realizations_per_frame = _validate_realizations_per_frame(realizations_per_frame)
 
     # ------------------------------------------------------------------
     # Helper for making saved GIF non-looping.
@@ -4535,14 +4496,13 @@ def animate_fdc_ensemble_by_realization(
         posterior_reals = []
 
     if animate_only_posterior:
-        n_realization_steps = len(posterior_reals)
+        n_frames = len(posterior_reals)
     else:
-        n_realization_steps = max(len(prior_reals), len(posterior_reals))
+        n_frames = max(len(prior_reals), len(posterior_reals))
 
-    if n_realization_steps == 0:
+    if n_frames == 0:
         raise ValueError("No realizations available to animate.")
 
-    n_frames = math.ceil(n_realization_steps / realizations_per_frame)
     pause_frames = int(fps * pause_seconds)
     total_frames = n_frames + pause_frames
 
@@ -4841,47 +4801,46 @@ def animate_fdc_ensemble_by_realization(
             i = frame
             is_pause = False
 
-        start_idx = i * realizations_per_frame
-        end_idx = (i + 1) * realizations_per_frame
+        # Animate prior only if requested.
+        if not is_pause and animate_prior and i < len(prior_reals):
+            realization = prior_reals[i]
 
-        # Animate prior only if requested. Add a batch of FDCs per frame.
-        if not is_pause and animate_prior:
-            for realization in prior_reals[start_idx:end_idx]:
-                x, y = _calculate_fdc(_get_realization_values(pr_oe, realization))
+            x, y = _calculate_fdc(_get_realization_values(pr_oe, realization))
 
-                if x is not None:
-                    ln, = ax.plot(
-                        x,
-                        y,
-                        color="0.5",
-                        lw=0.5,
-                        alpha=0.30,
-                        zorder=1,
-                    )
-                    artists.append(ln)
+            if x is not None:
+                ln, = ax.plot(
+                    x,
+                    y,
+                    color="0.5",
+                    lw=0.5,
+                    alpha=0.30,
+                    zorder=1,
+                )
+                artists.append(ln)
 
-        # Animate posterior. Add a batch of FDCs per frame.
-        if not is_pause and animate_posterior:
-            for realization in posterior_reals[start_idx:end_idx]:
-                x, y = _calculate_fdc(_get_realization_values(pt_oe, realization))
+        # Animate posterior.
+        if not is_pause and animate_posterior and i < len(posterior_reals):
+            realization = posterior_reals[i]
 
-                if x is not None:
-                    ln, = ax.plot(
-                        x,
-                        y,
-                        color="b",
-                        lw=0.5,
-                        alpha=0.40,
-                        zorder=3,
-                    )
-                    artists.append(ln)
+            x, y = _calculate_fdc(_get_realization_values(pt_oe, realization))
+
+            if x is not None:
+                ln, = ax.plot(
+                    x,
+                    y,
+                    color="b",
+                    lw=0.5,
+                    alpha=0.40,
+                    zorder=3,
+                )
+                artists.append(ln)
 
         if animate_only_posterior:
             n_prior = len(prior_reals) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
         else:
-            n_prior = min(end_idx, len(prior_reals)) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_prior = min(i + 1, len(prior_reals)) if has_prior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
 
         frame_text.set_text(
             f"Prior realizations: {n_prior}\n"
@@ -4972,7 +4931,6 @@ def animate_parameter_ensemble_by_realization(
     show_prior=True,
     show_posterior=True,
     animate_only_posterior=True,
-    realizations_per_frame=5,
     prior_label="Prior",
     posterior_label="Posterior",
     bestcand_label="Best candidate",
@@ -5001,8 +4959,6 @@ def animate_parameter_ensemble_by_realization(
     - Precomputes cumulative histogram counts.
     - Creates bars once and updates bar heights.
     - Uses fixed colors so colors do not change during animation.
-    - Supports realizations_per_frame so each frame can add several
-      realizations, e.g., 5 posterior members per frame.
     """
 
     from pathlib import Path
@@ -5080,8 +5036,6 @@ def animate_parameter_ensemble_by_realization(
         return np.cumsum(per_real_counts, axis=0)
 
     _log("Preparing parameter ensemble animation...")
-
-    realizations_per_frame = _validate_realizations_per_frame(realizations_per_frame)
 
     # ------------------------------------------------------------------
     # Optional automatic loading for PESTPP-IES parameter ensembles.
@@ -5334,20 +5288,18 @@ def animate_parameter_ensemble_by_realization(
     posterior_reals = list(pt_pe.index) if has_posterior else []
 
     if animate_only_posterior:
-        n_realization_steps = len(posterior_reals)
+        n_frames = len(posterior_reals)
     else:
-        n_realization_steps = max(len(prior_reals), len(posterior_reals))
+        n_frames = max(len(prior_reals), len(posterior_reals))
 
-    if n_realization_steps == 0:
+    if n_frames == 0:
         raise ValueError("No realizations available to animate.")
 
-    n_frames = math.ceil(n_realization_steps / realizations_per_frame)
     pause_frames = int(fps * pause_seconds)
     total_frames = n_frames + pause_frames
 
     _log(
-        f"Animation frames: {n_frames} frames "
-        f"({realizations_per_frame} realization(s) per frame) "
+        f"Animation frames: {n_frames} realization frames "
         f"+ {pause_frames} pause frames = {total_frames} total frames."
     )
 
@@ -5643,7 +5595,7 @@ def animate_parameter_ensemble_by_realization(
             animated_posterior_bars = info["animated_posterior_bars"]
 
             if animated_prior_bars is not None and prior_cum_counts is not None:
-                idx = min((i + 1) * realizations_per_frame - 1, prior_cum_counts.shape[0] - 1)
+                idx = min(i, prior_cum_counts.shape[0] - 1)
                 counts = prior_cum_counts[idx, :]
 
                 for patch, height in zip(animated_prior_bars, counts):
@@ -5651,21 +5603,19 @@ def animate_parameter_ensemble_by_realization(
                     artists.append(patch)
 
             if animated_posterior_bars is not None and posterior_cum_counts is not None:
-                idx = min((i + 1) * realizations_per_frame - 1, posterior_cum_counts.shape[0] - 1)
+                idx = min(i, posterior_cum_counts.shape[0] - 1)
                 counts = posterior_cum_counts[idx, :]
 
                 for patch, height in zip(animated_posterior_bars, counts):
                     patch.set_height(height)
                     artists.append(patch)
 
-        end_idx = (i + 1) * realizations_per_frame
-
         if animate_only_posterior:
             n_prior = len(prior_reals) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
         else:
-            n_prior = min(end_idx, len(prior_reals)) if has_prior else 0
-            n_post = min(end_idx, len(posterior_reals)) if has_posterior else 0
+            n_prior = min(i + 1, len(prior_reals)) if has_prior else 0
+            n_post = min(i + 1, len(posterior_reals)) if has_posterior else 0
 
         frame_text.set_text(
             f"Prior realizations: {n_prior}\n"
@@ -6017,51 +5967,3 @@ if __name__ == "__main__":
     # )
 
     # plt.close(fig)
-# ------------------------------------------------------------------------------
-# Example animation calls with batched realization updates
-# ------------------------------------------------------------------------------
-# Use realizations_per_frame=5 to add five realizations at each animation frame.
-# This reduces the number of frames by about five times compared with adding
-# one realization per frame.
-#
-# anim, fig, ax = animate_tseries_ensemble_by_realization(
-#     pst_file=model_dir / "pecos_rw_ies.pst",
-#     model_dir=model_dir,
-#     case="pecos_rw_ies",
-#     last_iter=4,
-#     auto_load_ies=True,
-#     obgnam=pst.nnz_obs_groups[0],
-#     realizations_per_frame=5,
-#     fps=8,
-#     pause_seconds=2.0,
-#     repeat=False,
-#     save_path=model_dir / "figures" / "animations" / "tseries_build.gif",
-# )
-#
-# anim, fig, ax = animate_fdc_ensemble_by_realization(
-#     pst_file=model_dir / "pecos_rw_ies.pst",
-#     model_dir=model_dir,
-#     case="pecos_rw_ies",
-#     last_iter=4,
-#     auto_load_ies=True,
-#     obgnam=pst.nnz_obs_groups[0],
-#     realizations_per_frame=5,
-#     fps=8,
-#     pause_seconds=2.0,
-#     repeat=False,
-#     save_path=model_dir / "figures" / "animations" / "fdc_build.gif",
-# )
-#
-# anim, fig, axes = animate_parameter_ensemble_by_realization(
-#     pst_file=model_dir / "pecos_rw_ies.pst",
-#     model_dir=model_dir,
-#     case="pecos_rw_ies",
-#     last_iter=4,
-#     auto_load_ies=True,
-#     sel_pars=["chl"],
-#     realizations_per_frame=5,
-#     fps=8,
-#     pause_seconds=2.0,
-#     repeat=False,
-#     save_path=model_dir / "figures" / "animations" / "parameter_ensemble_build.gif",
-# )

@@ -18,8 +18,8 @@ project:
   description: pecos calibration setup
 
 paths:
-  project_dir: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/calibration
-  txtinout_dir: C:/Users/seonggpa/Documents/projects/watersheds/Pecos/Analysis/america-pecos/Scenarios/Default/TxtInOut_v02
+  project_dir: /path/to/project
+  txtinout_dir: /path/to/project/TxtInOut
   workspace_dir: null           # if null, use project_dir/ihydrocal_workspace
   swat_exe: rev6102.exe
 
@@ -101,4 +101,5 @@ binaries:
     - pestpp-ies
     - pestpp-opt
     - pestpp-sen
+    - pestpp-swp
 
