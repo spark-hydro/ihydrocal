@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 
 from ihydrocal.models.swat_modflow import SWATModflowModel
+from pathlib import Path
+
 
 
 def test_evaluate_streamflow_selects_pair_and_calculates_metrics(tmp_path, monkeypatch):

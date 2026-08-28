@@ -1,11 +1,8 @@
 from pathlib import Path
 
-<<<<<<< HEAD
 import pandas as pd
 
 from ihydrocal.analyzer.metrics import evaluate_metrics
-=======
->>>>>>> 45f1a311d94b5323d5e4865514c164cd01a44fc3
 from ihydrocal.core import BaseModel, register_model
 from .io import SWATModflowIO
 
@@ -44,7 +41,6 @@ class SWATModflowModel(BaseModel):
             return []
         return sorted(self.output_dir.glob(pattern))
 
-<<<<<<< HEAD
     def evaluate_streamflow(
         self,
         obs_file,
@@ -151,8 +147,6 @@ class SWATModflowModel(BaseModel):
 
         return matched, metrics
 
-=======
->>>>>>> 45f1a311d94b5323d5e4865514c164cd01a44fc3
     def read_outputs(self):
         """Read SWAT-MODFLOW outputs.
 
