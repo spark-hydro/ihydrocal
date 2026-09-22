@@ -18,8 +18,9 @@ import pandas as pd
 # --------------------------------------------------------------
 
 model_dir = Path(
+    r"C:\Users\seonggpa\Documents\projects\watersheds\Pecos\Analysis\calibration_v03\ihydrocal_workspace\pecos_rw_ies"
     # r"C:\Users\spark\Documents\projects\watersheds\pecos\calibration_v03\ihydrocal_workspace\pecos_rw_ies"
-    r"/home/spark/Documents/projects/watersheds/pecos/calibration_v03/ihydrocal_workspace/pecos_rw_ies" # linux
+    # r"/home/spark/Documents/projects/watersheds/pecos/calibration_v03/ihydrocal_workspace/pecos_rw_ies" # linux
 
 )
 
